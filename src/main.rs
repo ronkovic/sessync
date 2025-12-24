@@ -1,13 +1,11 @@
 use anyhow::Result;
-use chrono;
 use clap::Parser;
 use log::info;
-use uuid;
 
-mod config;
-mod models;
 mod auth;
+mod config;
 mod dedup;
+mod models;
 mod parser;
 mod uploader;
 
@@ -36,6 +34,25 @@ struct Args {
     config: String,
 }
 
+/// Convert a path to a Claude project name
+/// Claude Code replaces '/' with '-' in project names
+pub fn path_to_project_name(path: &str) -> String {
+    // Remove leading slash for root paths like /Users/...
+    let normalized = path.strip_prefix('/').unwrap_or(path);
+    normalized.replace('/', "-")
+}
+
+/// Get the log directory for a specific project
+pub fn get_project_log_dir(home: &str, cwd: &str) -> String {
+    let project_name = path_to_project_name(cwd);
+    format!("{}/.claude/projects/{}", home, project_name)
+}
+
+/// Get the log directory for all projects
+pub fn get_all_projects_log_dir(home: &str) -> String {
+    format!("{}/.claude/projects", home)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -52,13 +69,19 @@ async fn main() -> Result<()> {
     println!("  Project: {}", config.project_id);
     println!("  Dataset: {}", config.dataset);
     println!("  Table: {}", config.table);
-    println!("  Developer: {} ({})", config.developer_id, config.user_email);
+    println!(
+        "  Developer: {} ({})",
+        config.developer_id, config.user_email
+    );
 
     // Load upload state
     // State file is project-local for multi-team support
     let state_path = "./.claude/sessync/upload-state.json".to_string();
     let mut state = dedup::UploadState::load(&state_path)?;
-    println!("✓ Loaded upload state: {} records previously uploaded", state.total_uploaded);
+    println!(
+        "✓ Loaded upload state: {} records previously uploaded",
+        state.total_uploaded
+    );
 
     // Create BigQuery client (skip if dry-run mode)
     let client = if args.dry_run {
@@ -75,14 +98,13 @@ async fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let log_dir = if args.all_projects {
         // Legacy behavior: scan all projects
-        format!("{}/.claude/projects", home)
+        get_all_projects_log_dir(&home)
     } else {
         // Default: current project only
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".to_string());
-        let project_name = cwd.replace("/", "-");
-        let project_dir = format!("{}/.claude/projects/{}", home, project_name);
+        let project_dir = get_project_log_dir(&home, &cwd);
 
         if !std::path::Path::new(&project_dir).exists() {
             println!("⚠ No logs found for current project: {}", cwd);
@@ -121,16 +143,19 @@ async fn main() -> Result<()> {
         println!("✓ Dry-run mode (not actually uploading)");
         println!("  Would upload {} records:", all_logs.len());
         for log in &all_logs {
-            println!("    - UUID: {} | Session: {} | Type: {}", log.uuid, log.session_id, log.message_type);
+            println!(
+                "    - UUID: {} | Session: {} | Type: {}",
+                log.uuid, log.session_id, log.message_type
+            );
         }
         all_logs.iter().map(|l| l.uuid.clone()).collect()
     } else {
-        uploader::upload_to_bigquery(
-            client.as_ref().expect("Client should exist in non-dry-run mode"),
-            &config,
-            all_logs,
-            false,
-        ).await?
+        let real_client = uploader::RealBigQueryClient::new(
+            client
+                .as_ref()
+                .expect("Client should exist in non-dry-run mode"),
+        );
+        uploader::upload_to_bigquery(&real_client, &config, all_logs, false).await?
     };
 
     if !args.dry_run && !uploaded_uuids.is_empty() {
@@ -140,10 +165,88 @@ async fn main() -> Result<()> {
         state.add_uploaded(uploaded_uuids.clone(), batch_id, timestamp);
         state.total_uploaded += uploaded_uuids.len() as u64;
         state.save(&state_path)?;
-        println!("✓ Updated upload state: {} total records uploaded", state.total_uploaded);
+        println!(
+            "✓ Updated upload state: {} total records uploaded",
+            state.total_uploaded
+        );
     }
 
     println!("✓ Upload complete!");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_path_to_project_name_absolute() {
+        let result = path_to_project_name("/Users/ronkovic/workspace/project");
+        assert_eq!(result, "Users-ronkovic-workspace-project");
+    }
+
+    #[test]
+    fn test_path_to_project_name_relative() {
+        let result = path_to_project_name("workspace/project");
+        assert_eq!(result, "workspace-project");
+    }
+
+    #[test]
+    fn test_path_to_project_name_single() {
+        let result = path_to_project_name("project");
+        assert_eq!(result, "project");
+    }
+
+    #[test]
+    fn test_path_to_project_name_with_root() {
+        let result = path_to_project_name("/");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_get_project_log_dir() {
+        let result = get_project_log_dir("/home/user", "/workspace/myproject");
+        assert_eq!(result, "/home/user/.claude/projects/workspace-myproject");
+    }
+
+    #[test]
+    fn test_get_all_projects_log_dir() {
+        let result = get_all_projects_log_dir("/home/user");
+        assert_eq!(result, "/home/user/.claude/projects");
+    }
+
+    #[test]
+    fn test_args_default_config() {
+        let args = Args::parse_from(["sessync"]);
+        assert_eq!(args.config, "./.claude/sessync/config.json");
+        assert!(!args.dry_run);
+        assert!(!args.all_projects);
+    }
+
+    #[test]
+    fn test_args_dry_run() {
+        let args = Args::parse_from(["sessync", "--dry-run"]);
+        assert!(args.dry_run);
+    }
+
+    #[test]
+    fn test_args_all_projects() {
+        let args = Args::parse_from(["sessync", "--all-projects"]);
+        assert!(args.all_projects);
+    }
+
+    #[test]
+    fn test_args_custom_config() {
+        let args = Args::parse_from(["sessync", "-c", "/custom/config.json"]);
+        assert_eq!(args.config, "/custom/config.json");
+    }
+
+    #[test]
+    fn test_args_combined() {
+        let args = Args::parse_from(["sessync", "--dry-run", "--all-projects", "--auto"]);
+        assert!(args.dry_run);
+        assert!(args.all_projects);
+        assert!(args.auto);
+    }
 }

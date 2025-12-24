@@ -1,0 +1,7 @@
+{
+  "coverage-gutters.coverageFileNames": ["lcov.info"],
+  "coverage-gutters.showLineCoverage": true,
+  "coverage-gutters.showRulerCoverage": true,
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.check.command": "clippy"
+}

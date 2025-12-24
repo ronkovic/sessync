@@ -14,11 +14,14 @@ service-account*.json
 .claude/sessync/sessync
 
 # IDEファイル
-.vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# カバレッジ
+lcov.info
+*.profraw
 
 # macOS
 .DS_Store

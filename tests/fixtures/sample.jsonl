@@ -1,0 +1,3 @@
+{"uuid":"test-uuid-001","timestamp":"2024-12-25T10:00:00Z","sessionId":"session-001","type":"user","message":{"role":"user","content":"Hello, world!"}}
+{"uuid":"test-uuid-002","timestamp":"2024-12-25T10:01:00Z","sessionId":"session-001","type":"assistant","message":{"role":"assistant","content":"Hello! How can I help you today?"}}
+{"uuid":"test-uuid-003","timestamp":"2024-12-25T10:02:00Z","sessionId":"session-001","type":"user","message":{"role":"user","content":"Can you explain BigQuery?"}}
