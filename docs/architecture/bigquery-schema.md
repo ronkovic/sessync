@@ -14,10 +14,10 @@
 ### パーティショニング
 
 ```sql
-PARTITION BY DATE(_partitionTime)
+PARTITION BY DATE(uploaded_at)
 ```
 
-- **パーティション列**: `_partitionTime`
+- **パーティション列**: `uploaded_at`（アップロード時刻）
 - **パーティションタイプ**: 日次
 - **効果**: クエリコストの削減、パフォーマンスの向上
 
@@ -49,8 +49,8 @@ CREATE TABLE `your-gcp-project-id.claude_sessions.session_logs`
   cwd STRING,
   git_branch STRING,
   version STRING,
-  message JSON NOT NULL,
-  tool_use_result JSON,
+  message JSON NOT NULL,         -- ネイティブJSON型（UNNESTクエリ対応）
+  tool_use_result JSON,          -- ネイティブJSON型（UNNESTクエリ対応）
 
   -- チームコラボレーションメタデータ
   developer_id STRING NOT NULL,
@@ -61,9 +61,9 @@ CREATE TABLE `your-gcp-project-id.claude_sessions.session_logs`
   -- アップロードメタデータ
   upload_batch_id STRING NOT NULL,
   source_file STRING NOT NULL,
-  _partitionTime TIMESTAMP NOT NULL
+  uploaded_at TIMESTAMP NOT NULL
 )
-PARTITION BY DATE(_partitionTime)
+PARTITION BY DATE(uploaded_at)
 CLUSTER BY session_id, developer_id;
 ```
 
@@ -88,8 +88,8 @@ Claude Codeが生成する元のログフィールドです。
 | `cwd` | STRING | NULL | カレントワーキングディレクトリ | `"/Users/user/project"` |
 | `git_branch` | STRING | NULL | Gitブランチ名 | `"main"` |
 | `version` | STRING | NULL | Claude Codeのバージョン | `"1.0.0"` |
-| `message` | JSON | NOT NULL | メッセージ本体（柔軟な構造） | `{"content": "Hello"}` |
-| `tool_use_result` | JSON | NULL | ツール実行結果（柔軟な構造） | `{"output": "..."}` |
+| `message` | JSON | NOT NULL | メッセージ本体（ネイティブJSON） | `{"role": "user", "content": "Hello"}` |
+| `tool_use_result` | JSON | NULL | ツール実行結果（ネイティブJSON） | `{"output": "..."}` |
 
 ### チームコラボレーションメタデータ
 
@@ -109,8 +109,8 @@ Claude Codeが生成する元のログフィールドです。
 | フィールド名 | 型 | NULL許可 | 説明 | 例 |
 |------------|---|---------|------|---|
 | `upload_batch_id` | STRING | NOT NULL | アップロードバッチUUID | `"batch-xyz-456"` |
-| `source_file` | STRING | NOT NULL | 元のログファイルパス | `"/Users/user/.claude/session-logs/2024-12-24.jsonl"` |
-| `_partitionTime` | TIMESTAMP | NOT NULL | パーティション時刻（日次） | `2024-12-24 00:00:00 UTC` |
+| `source_file` | STRING | NOT NULL | 元のログファイルパス | `"/Users/user/.claude/projects/.../*.jsonl"` |
+| `uploaded_at` | TIMESTAMP | NOT NULL | アップロード時刻 | `2024-12-24 10:30:00 UTC` |
 
 ## データ型の選択理由
 
@@ -127,45 +127,75 @@ Claude Codeが生成する元のログフィールドです。
 | フィールド | 選択 | 理由 |
 |-----------|------|------|
 | `timestamp` | TIMESTAMP | 日時演算が可能、タイムゾーン対応 |
-| `_partitionTime` | TIMESTAMP | パーティショニングに必須 |
+| `uploaded_at` | TIMESTAMP | パーティショニングに使用、日時演算が可能 |
 
 ### JSON vs STRING
 
 | フィールド | 選択 | 理由 |
 |-----------|------|------|
-| `message` | JSON | 柔軟な構造、SQLでの抽出が容易 |
-| `tool_use_result` | JSON | 柔軟な構造、SQLでの抽出が容易 |
+| `message` | JSON | ネイティブJSON型。`message`自体は常にオブジェクト形式のため問題なし |
+| `tool_use_result` | JSON | 同上。`UNNEST()`で配列要素に直接アクセス可能 |
+
+**設計判断**:
+- `message` フィールドは常に `{"role": "...", "content": ...}` というオブジェクト形式
+- `message.content` は文字列または配列だが、トップレベルがオブジェクトのためJSON型で保存可能
+- ネイティブJSON型により `UNNEST()` でツール使用分析などが容易に
+
+**分析クエリ例**:
+```sql
+-- ツール使用頻度分析（動作確認済み構文）
+SELECT JSON_VALUE(c.name) as tool_name, COUNT(*) as count
+FROM session_logs, UNNEST(JSON_QUERY_ARRAY(message.content)) as c
+WHERE JSON_VALUE(message.role) = 'assistant' AND JSON_VALUE(c.type) = 'tool_use'
+GROUP BY tool_name;
+```
+
+**Rust実装ノート**:
+BigQuery Streaming Insert API は JSON型カラムに対して、JSON値を**文字列としてシリアライズ**して送信する必要があります。
+`models.rs` のカスタムシリアライザー `serialize_json_value_as_string` がこの変換を行います。
 
 ## サンプルデータ
 
+### User メッセージ（文字列content）
 ```json
 {
   "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "timestamp": "2024-12-24T10:00:00Z",
   "session_id": "session-123",
-  "agent_id": null,
-  "is_sidechain": false,
-  "parent_uuid": null,
-  "user_type": "human",
-  "type": "user_message",
-  "slug": null,
-  "request_id": "req-789",
-  "cwd": "/Users/username/project",
-  "git_branch": "main",
-  "version": "1.0.0",
+  "type": "user",
   "message": {
+    "role": "user",
     "content": "Implement user authentication"
   },
   "tool_use_result": null,
   "developer_id": "dev-001",
   "hostname": "macbook-pro.local",
-  "user_email": "dev@example.com",
-  "project_name": "my-project",
-  "upload_batch_id": "batch-xyz-456",
-  "source_file": "/Users/username/.claude/session-logs/2024-12-24.jsonl",
-  "_partitionTime": "2024-12-24T00:00:00Z"
+  "uploaded_at": "2024-12-24T00:00:00Z"
 }
 ```
+
+### Assistant メッセージ（配列content）
+```json
+{
+  "uuid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "timestamp": "2024-12-24T10:00:05Z",
+  "session_id": "session-123",
+  "type": "assistant",
+  "message": {
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "I'll help you implement authentication..."},
+      {"type": "tool_use", "id": "toolu_123", "name": "Read", "input": {"file_path": "/src/auth.rs"}}
+    ]
+  },
+  "tool_use_result": null,
+  "developer_id": "dev-001",
+  "hostname": "macbook-pro.local",
+  "uploaded_at": "2024-12-24T00:00:00Z"
+}
+```
+
+**重要**: `message` フィールドは常にオブジェクト型ですが、`message.content` は文字列または配列のどちらかになります。
 
 ## クエリ例
 
@@ -178,7 +208,7 @@ SELECT
   COUNT(DISTINCT session_id) as session_count,
   COUNT(*) as total_messages
 FROM `your-gcp-project-id.claude_sessions.session_logs`
-WHERE DATE(_partitionTime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+WHERE DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 GROUP BY developer_id, user_email
 ORDER BY session_count DESC;
 ```
@@ -193,7 +223,7 @@ SELECT
 FROM `your-gcp-project-id.claude_sessions.session_logs`
 WHERE
   type IN ('tool_use', 'tool_result')
-  AND DATE(_partitionTime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+  AND DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
 GROUP BY project_name, type
 ORDER BY usage_count DESC;
 ```
@@ -216,12 +246,12 @@ ORDER BY timestamp ASC;
 
 ```sql
 SELECT
-  DATE(_partitionTime) as date,
+  DATE(uploaded_at) as date,
   COUNT(DISTINCT session_id) as sessions,
   COUNT(DISTINCT developer_id) as active_developers,
   COUNT(*) as total_messages
 FROM `your-gcp-project-id.claude_sessions.session_logs`
-WHERE DATE(_partitionTime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+WHERE DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 GROUP BY date
 ORDER BY date DESC;
 ```
@@ -241,7 +271,7 @@ SELECT
 FROM `your-gcp-project-id.claude_sessions.session_logs`
 WHERE
   agent_id IS NOT NULL
-  AND DATE(_partitionTime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+  AND DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
 GROUP BY agent_id
 ORDER BY total_agent_messages DESC;
 ```
@@ -258,32 +288,74 @@ SELECT
 FROM `your-gcp-project-id.claude_sessions.session_logs`
 WHERE
   git_branch IS NOT NULL
-  AND DATE(_partitionTime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  AND DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 GROUP BY git_branch
 ORDER BY sessions DESC;
 ```
 
-### 7. JSONフィールドの抽出
+### 7. JSON フィールドの分析
 
 ```sql
+-- ネイティブJSON型への直接アクセス（動作確認済み）
 SELECT
   uuid,
   timestamp,
-  JSON_VALUE(message, '$.content') as message_content,
-  JSON_VALUE(tool_use_result, '$.output') as tool_output
+  JSON_VALUE(message.role) as role,
+  -- 文字列contentの場合
+  JSON_VALUE(message.content) as user_content
 FROM `your-gcp-project-id.claude_sessions.session_logs`
 WHERE
-  type = 'tool_use'
-  AND DATE(_partitionTime) = CURRENT_DATE()
+  JSON_VALUE(message.role) = 'user'
+  AND DATE(uploaded_at) = CURRENT_DATE()
 LIMIT 100;
 ```
+
+### 8. ツール使用パターン分析（UNNEST使用）
+
+```sql
+-- 配列contentの展開と分析（動作確認済み）
+SELECT
+  JSON_VALUE(c.name) as tool_name,
+  COUNT(*) as usage_count,
+  COUNT(DISTINCT session_id) as session_count
+FROM `your-gcp-project-id.claude_sessions.session_logs`,
+UNNEST(JSON_QUERY_ARRAY(message.content)) as c
+WHERE
+  JSON_VALUE(message.role) = 'assistant'
+  AND JSON_VALUE(c.type) = 'tool_use'
+  AND DATE(uploaded_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+GROUP BY tool_name
+ORDER BY usage_count DESC;
+```
+
+### 9. AI応答テキストの抽出
+
+```sql
+-- Assistantのテキスト応答を抽出（動作確認済み）
+SELECT
+  session_id,
+  timestamp,
+  JSON_VALUE(c.text) as response_text
+FROM `your-gcp-project-id.claude_sessions.session_logs`,
+UNNEST(JSON_QUERY_ARRAY(message.content)) as c
+WHERE
+  JSON_VALUE(message.role) = 'assistant'
+  AND JSON_VALUE(c.type) = 'text'
+ORDER BY timestamp DESC
+LIMIT 50;
+```
+
+**ポイント**:
+- ネイティブJSON型では `PARSE_JSON()` が不要
+- `JSON_VALUE()` でスカラー値を抽出
+- `JSON_QUERY_ARRAY()` + `UNNEST()` で配列要素を展開
 
 ## パーティショニング戦略
 
 ### 日次パーティション
 
 ```sql
-PARTITION BY DATE(_partitionTime)
+PARTITION BY DATE(uploaded_at)
 ```
 
 #### 利点
@@ -291,7 +363,7 @@ PARTITION BY DATE(_partitionTime)
 1. **クエリコスト削減**
    ```sql
    -- パーティションプルーニングが効く
-   WHERE DATE(_partitionTime) >= '2024-12-01'
+   WHERE DATE(uploaded_at) >= '2024-12-01'
    -- スキャンされるデータ: 2024-12-01以降のパーティションのみ
    ```
 
@@ -303,7 +375,7 @@ PARTITION BY DATE(_partitionTime)
    ```sql
    -- 古いパーティションの削除
    DELETE FROM `your-gcp-project-id.claude_sessions.session_logs`
-   WHERE DATE(_partitionTime) < '2023-01-01';
+   WHERE DATE(uploaded_at) < '2023-01-01';
    ```
 
 ### パーティション保持期間（将来の拡張）
@@ -395,7 +467,7 @@ SELECT * FROM session_logs WHERE timestamp >= '2024-12-01'
 -- コスト: $0.625
 
 -- パーティションあり
-SELECT * FROM session_logs WHERE DATE(_partitionTime) >= '2024-12-01'
+SELECT * FROM session_logs WHERE DATE(uploaded_at) >= '2024-12-01'
 -- スキャン: 2024-12-01以降のみ (例: 10 GB)
 -- コスト: $0.0625
 
@@ -422,7 +494,7 @@ SELECT * FROM session_logs WHERE DATE(_partitionTime) >= '2024-12-01'
 ```sql
 -- 1年以上前のデータを削除
 DELETE FROM `your-gcp-project-id.claude_sessions.session_logs`
-WHERE DATE(_partitionTime) < DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY);
+WHERE DATE(uploaded_at) < DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY);
 ```
 
 ## スキーマ進化（Schema Evolution）

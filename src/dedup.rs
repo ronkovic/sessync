@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;

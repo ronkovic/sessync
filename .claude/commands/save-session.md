@@ -1,10 +1,11 @@
 ---
-description: 現在のセッションログを手動で保存する
+description: 現在のセッションログをBigQueryにアップロード
 allowed-tools: Bash
 ---
 
-# セッションログ保存
+# セッションログアップロード
 
-現在の会話ログを `.claude/session-logs/` に保存します。
+現在のプロジェクトのログをBigQueryにアップロードします。
+セッション途中でも実行可能です。
 
-!`./.claude/hooks/save-session-wrapper.sh`
+!`./.claude/sessync/sessync`

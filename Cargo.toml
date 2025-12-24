@@ -1,5 +1,5 @@
 [package]
-name = "upload-to-bigquery"
+name = "sessync"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,9 +9,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # BigQuery SDK
-google-cloud-bigquery = "0.7"
-google-cloud-gax = "0.17"
-google-cloud-auth = "0.16"
+google-cloud-bigquery = "0.15"
+google-cloud-gax = "1.4"
+google-cloud-auth = "1.3"
 
 # 非同期ランタイム
 tokio = { version = "1.35", features = ["full"] }
@@ -31,7 +31,7 @@ env_logger = "0.11"
 log = "0.4"
 
 # 時刻処理
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 
 # パス展開
 shellexpand = "3.1"

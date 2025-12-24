@@ -12,7 +12,7 @@ mod parser;
 mod uploader;
 
 #[derive(Parser, Debug)]
-#[command(name = "upload-to-bigquery")]
+#[command(name = "sessync")]
 #[command(about = "Upload Claude Code session logs to BigQuery", long_about = None)]
 struct Args {
     /// Dry run mode - don't actually upload
@@ -27,8 +27,12 @@ struct Args {
     #[arg(long)]
     manual: bool,
 
+    /// Upload logs from all projects instead of current project only
+    #[arg(long)]
+    all_projects: bool,
+
     /// Config file path
-    #[arg(short, long, default_value = "./.claude/bigquery/config.json")]
+    #[arg(short, long, default_value = "./.claude/sessync/config.json")]
     config: String,
 }
 
@@ -51,16 +55,45 @@ async fn main() -> Result<()> {
     println!("  Developer: {} ({})", config.developer_id, config.user_email);
 
     // Load upload state
-    let state_path = format!("{}/.upload_state.json", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
+    // State file is project-local for multi-team support
+    let state_path = "./.claude/sessync/upload-state.json".to_string();
     let mut state = dedup::UploadState::load(&state_path)?;
     println!("✓ Loaded upload state: {} records previously uploaded", state.total_uploaded);
 
-    // Create BigQuery client
-    let client = auth::create_bigquery_client(&config.service_account_key_path).await?;
-    println!("✓ Authenticated with BigQuery using service account");
+    // Create BigQuery client (skip if dry-run mode)
+    let client = if args.dry_run {
+        None
+    } else {
+        let c = auth::create_bigquery_client(&config.service_account_key_path).await?;
+        println!("✓ Authenticated with BigQuery using service account");
+        Some(c)
+    };
 
-    // Discover log files
-    let log_dir = format!("{}/.claude/session-logs", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
+    // Determine log directory
+    // Claude Code stores session logs in ~/.claude/projects/{project_name}/
+    // where project_name is CWD with '/' replaced by '-'
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let log_dir = if args.all_projects {
+        // Legacy behavior: scan all projects
+        format!("{}/.claude/projects", home)
+    } else {
+        // Default: current project only
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        let project_name = cwd.replace("/", "-");
+        let project_dir = format!("{}/.claude/projects/{}", home, project_name);
+
+        if !std::path::Path::new(&project_dir).exists() {
+            println!("⚠ No logs found for current project: {}", cwd);
+            println!("  Expected directory: {}", project_dir);
+            println!("  Use --all-projects to upload from all projects");
+            return Ok(());
+        }
+
+        project_dir
+    };
+
     let log_files = parser::discover_log_files(&log_dir)?;
     println!("✓ Found {} log files in {}", log_files.len(), log_dir);
 
@@ -84,17 +117,21 @@ async fn main() -> Result<()> {
     }
 
     // Upload to BigQuery
-    if args.dry_run {
+    let uploaded_uuids = if args.dry_run {
         println!("✓ Dry-run mode (not actually uploading)");
-        println!("  Would upload {} records", all_logs.len());
-    }
-
-    let uploaded_uuids = uploader::upload_to_bigquery(
-        &client,
-        &config,
-        all_logs,
-        args.dry_run,
-    ).await?;
+        println!("  Would upload {} records:", all_logs.len());
+        for log in &all_logs {
+            println!("    - UUID: {} | Session: {} | Type: {}", log.uuid, log.session_id, log.message_type);
+        }
+        all_logs.iter().map(|l| l.uuid.clone()).collect()
+    } else {
+        uploader::upload_to_bigquery(
+            client.as_ref().expect("Client should exist in non-dry-run mode"),
+            &config,
+            all_logs,
+            false,
+        ).await?
+    };
 
     if !args.dry_run && !uploaded_uuids.is_empty() {
         // Update and save state

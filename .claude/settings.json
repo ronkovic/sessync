@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/session-end.sh",
-            "timeout": 30
+            "command": "./.claude/sessync/sessync --auto",
+            "timeout": 60
           }
         ]
       }

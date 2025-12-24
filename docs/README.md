@@ -8,7 +8,7 @@
 
 - **目的**: Claude Codeの使用履歴をBigQueryで一元管理し、チーム内での利用状況を分析
 - **主要機能**: JSONL解析、Service Account認証、BigQueryバッチアップロード、UUID重複排除
-- **現在の状態**: コア機能実装完了（Phase 1: 100%）
+- **現在の状態**: コア機能実装完了、プロジェクト単位設定対応済み
 
 ## ドキュメント構成
 
@@ -44,7 +44,7 @@
 
 5. **[重複排除メカニズム](./architecture/deduplication-mechanism.md)**
    - UUIDベース重複排除の設計思想
-   - 状態ファイル (`~/.upload_state.json`) の構造
+   - 状態ファイル (`./.claude/sessync/upload-state.json`) の構造
    - HashSet による O(1) 検索
    - エラーケースの処理
    - BigQueryとの連携（insert_id）
@@ -72,6 +72,13 @@
    - 中期目標（3-6ヶ月）: データ分析、パフォーマンス最適化
    - 長期目標（6ヶ月以降）: マルチクラウド、リアルタイム処理
    - 技術的検討事項とコミュニティ機能
+
+3. **[GCPセットアップガイド](./project/gcp-setup-guide.md)** ⭐ NEW
+   - GCPプロジェクト新規作成手順
+   - BigQuery API有効化
+   - Service Account作成・権限設定
+   - テーブル作成SQL
+   - ローカル設定とトラブルシューティング
 
 ## その他のドキュメント
 
@@ -131,6 +138,7 @@
 |------------|------|---------|
 | [実装チェックリスト](./project/implementation-checklist.md) | タスク管理と進捗状況 | プロジェクトマネージャー、開発者 |
 | [将来の拡張計画](./project/future-roadmap.md) | 長期的な機能拡張計画 | 全員 |
+| [GCPセットアップガイド](./project/gcp-setup-guide.md) | GCPプロジェクト・BigQueryセットアップ | 新規参加者、運用担当者 |
 
 ## よくある質問
 
@@ -144,7 +152,7 @@ A: [実装チェックリスト](./project/implementation-checklist.md)で未完
 
 ### Q: セットアップ方法は？
 
-A: [USAGE.md](../USAGE.md)に詳しいセットアップ手順が記載されています。
+A: [GCPセットアップガイド](./project/gcp-setup-guide.md)でGCPプロジェクトとBigQueryの設定を行い、[USAGE.md](../USAGE.md)でローカル環境のセットアップを完了してください。
 
 ### Q: トラブルシューティングは？
 
@@ -185,9 +193,8 @@ A: [BigQueryスキーマ定義](./architecture/bigquery-schema.md)に様々な�
 
 ## プロジェクトステータス
 
-**現在**: Phase 1 完了（コア機能実装）
-**次**: Phase 2 開始（テストとビルド）
-**進捗**: 35% 完了（9/26タスク）
+**現在**: Phase 1 完了 + プロジェクト単位設定対応
+**特徴**: マルチチーム対応、SessionEnd自動アップロード、中間シェルスクリプト廃止
 
 詳細は[実装チェックリスト](./project/implementation-checklist.md)を参照。
 
@@ -197,5 +204,5 @@ A: [BigQueryスキーマ定義](./architecture/bigquery-schema.md)に様々な�
 
 ---
 
-**最終更新**: 2024-12-24
-**ドキュメントバージョン**: 1.0.0
+**最終更新**: 2025-12-25
+**ドキュメントバージョン**: 1.1.0

@@ -27,7 +27,7 @@
 
 ```
 [1] config.json に service_account_key_path を指定
-    例: "~/.claude/bigquery/service-account-key.json"
+    例: "~/.claude/sessync/service-account-key.json"
     ↓
 [2] auth::create_bigquery_client() が呼ばれる
     ↓
@@ -117,17 +117,17 @@ pub async fn create_bigquery_client(key_path: &str) -> Result<Client> {
 mkdir -p ~/.claude/bigquery
 
 # ダウンロードしたキーファイルを移動
-mv ~/Downloads/your-project-abc123.json ~/.claude/bigquery/service-account-key.json
+mv ~/Downloads/your-project-abc123.json ~/.claude/sessync/service-account-key.json
 
 # パーミッションを設定（重要！）
-chmod 600 ~/.claude/bigquery/service-account-key.json
+chmod 600 ~/.claude/sessync/service-account-key.json
 ```
 
 ### 3. config.json の設定
 
 ```json
 {
-  "service_account_key_path": "~/.claude/bigquery/service-account-key.json"
+  "service_account_key_path": "~/.claude/sessync/service-account-key.json"
 }
 ```
 
@@ -139,10 +139,10 @@ chmod 600 ~/.claude/bigquery/service-account-key.json
 
 ```bash
 # 所有者のみ読み書き可能に設定
-chmod 600 ~/.claude/bigquery/service-account-key.json
+chmod 600 ~/.claude/sessync/service-account-key.json
 
 # 確認
-ls -l ~/.claude/bigquery/service-account-key.json
+ls -l ~/.claude/sessync/service-account-key.json
 # 出力: -rw-------  1 username  staff  2345 Dec 24 10:00 service-account-key.json
 ```
 
@@ -152,7 +152,7 @@ ls -l ~/.claude/bigquery/service-account-key.json
 
 ```gitignore
 # Service Account キー
-.claude/bigquery/*.json
+.claude/sessync/*.json
 service-account-key.json
 **/service-account*.json
 ```
@@ -166,7 +166,7 @@ service-account-key.json
 2. **Git履歴から削除**
    ```bash
    git filter-branch --force --index-filter \
-     'git rm --cached --ignore-unmatch .claude/bigquery/service-account-key.json' \
+     'git rm --cached --ignore-unmatch .claude/sessync/service-account-key.json' \
      --prune-empty --tag-name-filter cat -- --all
    ```
 
@@ -209,7 +209,7 @@ std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", expanded_path.as_ref());
 
 ```bash
 # シェル設定ファイル（~/.zshrc, ~/.bashrc など）
-export GOOGLE_APPLICATION_CREDENTIALS="~/.claude/bigquery/service-account-key.json"
+export GOOGLE_APPLICATION_CREDENTIALS="~/.claude/sessync/service-account-key.json"
 ```
 
 この方法は推奨しません：
@@ -224,7 +224,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="~/.claude/bigquery/service-account-key.js
 
 ```bash
 # ファイルの存在確認
-ls -l ~/.claude/bigquery/service-account-key.json
+ls -l ~/.claude/sessync/service-account-key.json
 
 # エラーの場合: キーファイルが存在しない
 # 解決方法: キーファイルを正しい場所に配置
@@ -234,7 +234,7 @@ ls -l ~/.claude/bigquery/service-account-key.json
 
 ```bash
 # パーミッション確認
-ls -l ~/.claude/bigquery/service-account-key.json
+ls -l ~/.claude/sessync/service-account-key.json
 
 # 他人が読めないことを確認
 # 出力: -rw-------  (600) が推奨
@@ -244,7 +244,7 @@ ls -l ~/.claude/bigquery/service-account-key.json
 
 ```bash
 # JSONの妥当性チェック
-cat ~/.claude/bigquery/service-account-key.json | jq .
+cat ~/.claude/sessync/service-account-key.json | jq .
 
 # エラーの場合: JSON形式が壊れている
 # 解決方法: GCPコンソールから再ダウンロード

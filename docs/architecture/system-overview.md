@@ -28,11 +28,11 @@
                │   - BigQuery クライアント作成
                │
                ├─→ [状態管理] dedup.rs
-               │   - ~/.upload_state.json の読み込み
-               │   - アップロード済みUUID追跡
+               │   - ./.claude/sessync/upload-state.json の読み込み
+               │   - アップロード済みUUID追跡（プロジェクト単位）
                │
                ├─→ [ログ検索] parser.rs
-               │   - ~/.claude/session-logs/ 内の .jsonl ファイル検索
+               │   - ~/.claude/projects/{project-name}/ 内の .jsonl ファイル検索
                │
                ├─→ [パース & 変換] parser.rs + models.rs
                │   - SessionLogInput → SessionLogOutput 変換
@@ -46,7 +46,7 @@
                │
                └─→ [状態保存] dedup.rs
                    - アップロード済みUUIDの記録
-                   - ~/.upload_state.json の更新
+                   - ./.claude/sessync/upload-state.json の更新
 ```
 
 ## 主要コンポーネント
@@ -65,7 +65,7 @@
 
 ```
 [ログファイル]
-~/.claude/session-logs/*.jsonl
+~/.claude/projects/{project-name}/*.jsonl
          ↓
    [ファイル検索]
     parser.rs::discover_log_files()
@@ -86,7 +86,7 @@
          ↓
    [状態更新]
     dedup.rs::add_uploaded()
-    ~/.upload_state.json に保存
+    ./.claude/sessync/upload-state.json に保存
 ```
 
 ## 外部依存関係
@@ -133,7 +133,7 @@
 
 ## 設定ファイル
 
-**デフォルトパス**: `./.claude/bigquery/config.json`
+**デフォルトパス**: `./.claude/sessync/config.json`
 
 主要な設定項目：
 - BigQuery接続情報（project_id, dataset, table, location）
@@ -145,12 +145,16 @@
 
 ## 状態ファイル
 
-**保存場所**: `~/.upload_state.json`
+**保存場所**: `./.claude/sessync/upload-state.json`（プロジェクト単位）
 
 目的：
 - アップロード済みUUIDの追跡
 - 重複アップロードの防止
 - 最終アップロード情報の記録
+
+**プロジェクト単位の理由**：
+- 異なるプロジェクトが異なるBigQueryにアップロードする場合、状態を分離する必要がある
+- チームAのプロジェクトとチームBのプロジェクトで重複排除状態が混在しない
 
 ## セキュリティ
 

@@ -58,17 +58,30 @@
   - Windows: `x86_64-pc-windows-msvc`
 - **配布方法**: GitHub Releases
 
-### Claude Code 統合
+### Claude Code 統合 ✅ 完了
 
-#### Session-end フック完成
+#### ✅ SessionEnd フック完成（シンプル化）
 - **目標**: セッション終了時の自動アップロード
-- **実装**:
-  ```bash
-  #!/bin/bash
-  # .claude/hooks/session-end.sh
-  /path/to/upload-to-bigquery --auto 2>&1 | tee -a ~/.claude/upload.log
+- **実装**: `.claude/settings.json` でRustバイナリ直接呼び出し
+  ```json
+  {
+    "hooks": {
+      "SessionEnd": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "./.claude/sessync/sessync --auto",
+              "timeout": 60
+            }
+          ]
+        }
+      ]
+    }
+  }
   ```
-- **動作確認**: 複数セッションでの安定動作
+- **メリット**: シェルスクリプト廃止（122行削減）、中間ファイル不要
+- **完了日**: 2025-12-25
 
 ---
 
@@ -232,24 +245,31 @@
 
 ### エンタープライズ機能
 
-#### 組織レベルの権限管理
+#### ✅ プロジェクト単位の設定分離（実装済み）
 - **目標**: 複数チーム、複数プロジェクトの一元管理
-- **機能**:
-  - プロジェクト別の設定ファイル
-  - チーム別の BigQuery テーブル
-  - ロールベースのアクセス制御
+- **実装済み機能**:
+  - プロジェクト別の設定ファイル (`.claude/sessync/config.json`)
+  - プロジェクト別のサービスアカウントキー (`.claude/sessync/service-account-key.json`)
+  - プロジェクト別の状態ファイル (`.claude/sessync/upload-state.json`)
 - **設定構造**:
   ```
-  ~/.claude/
-  ├── config/
-  │   ├── team-a/
-  │   │   └── config.json
-  │   └── team-b/
-  │       └── config.json
-  └── keys/
-      ├── team-a-sa.json
-      └── team-b-sa.json
+  project-a/
+  └── .claude/
+      └── bigquery/
+          ├── config.json              ← チームAのBigQuery
+          ├── service-account-key.json ← チームAのキー
+          └── upload-state.json        ← チームA用状態
+
+  project-b/
+  └── .claude/
+      └── bigquery/
+          ├── config.json              ← チームBのBigQuery
+          ├── service-account-key.json ← チームBのキー
+          └── upload-state.json        ← チームB用状態
   ```
+- **完了日**: 2025-12-25
+
+#### 将来の拡張: ロールベースアクセス制御
 
 #### 複数プロジェクトの一元管理
 - **目標**: 複数プロジェクトを1つのダッシュボードで管理

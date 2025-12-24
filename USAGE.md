@@ -19,17 +19,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Copy the example config and customize it:
 
 ```bash
-mkdir -p .claude/bigquery
-cp examples/config.json.example .claude/bigquery/config.json
+mkdir -p .claude/sessync
+cp examples/config.json.example .claude/sessync/config.json
 ```
 
-Edit `.claude/bigquery/config.json` with your settings:
+Edit `.claude/sessync/config.json` with your settings:
 
 ```json
 {
   "project_id": "your-gcp-project-id",
   "dataset": "claude_sessions",
-  "table": "session_logs",
+  "table": "session_logs_v2",
   "location": "US",
   "upload_batch_size": 500,
   "enable_auto_upload": true,
@@ -37,79 +37,104 @@ Edit `.claude/bigquery/config.json` with your settings:
   "developer_id": "your-developer-id",
   "user_email": "your.email@example.com",
   "project_name": "your-project-name",
-  "service_account_key_path": "~/.claude/bigquery/service-account-key.json"
+  "service_account_key_path": "./.claude/sessync/service-account-key.json"
 }
 ```
 
 ### 3. Add Service Account Key
 
-Place your GCP service account JSON key at the path specified in config:
+Place your GCP service account JSON key in the project directory:
 
 ```bash
-cp /path/to/your-service-account-key.json ~/.claude/bigquery/service-account-key.json
-chmod 600 ~/.claude/bigquery/service-account-key.json
+cp /path/to/your-service-account-key.json ./.claude/sessync/service-account-key.json
+chmod 600 ./.claude/sessync/service-account-key.json
 ```
 
-## Building
+**Note**: Service account key is project-local for multi-team support (different projects can use different BigQuery destinations).
+
+### 4. Build and Deploy
 
 ```bash
 cargo build --release
+cp ./target/release/sessync ./.claude/sessync/sessync
+chmod +x ./.claude/sessync/sessync
 ```
-
-The binary will be available at: `target/release/upload-to-bigquery`
 
 ## Usage
 
 ### Dry Run (Test without uploading)
 
 ```bash
-cargo run -- --dry-run
+./.claude/sessync/sessync --dry-run
 ```
 
-### Manual Upload
+### Manual Upload (Current Project Only)
 
 ```bash
-cargo run
+./.claude/sessync/sessync
+```
+
+### Upload All Projects
+
+```bash
+./.claude/sessync/sessync --all-projects
 ```
 
 ### With Custom Config Path
 
 ```bash
-cargo run -- --config /path/to/config.json
+./.claude/sessync/sessync --config /path/to/config.json
 ```
 
-### Automatic Mode (from hook)
+### From Claude Code
 
-```bash
-cargo run -- --auto
-```
+Use the `/save-session` command within Claude Code to upload the current session to BigQuery.
 
 ## Features
 
-- **Deduplication**: Tracks uploaded UUIDs to prevent duplicates
+- **Project Isolation**: Each project has its own config, service account key, and upload state
+- **Multi-Team Support**: Different projects can upload to different BigQuery destinations
+- **Deduplication**: Tracks uploaded UUIDs per-project to prevent duplicates
 - **Batch Upload**: Configurable batch size for efficient uploads
 - **Service Account Auth**: Secure authentication using GCP service accounts
 - **Team Collaboration**: Adds developer_id, hostname, user_email metadata
 - **Incremental**: Only uploads new records since last run
 - **Dry Run**: Test mode to preview uploads without sending data
+- **Automatic Upload**: SessionEnd hook for automatic uploads
 
 ## Log File Location
 
-The uploader scans for `.jsonl` files in:
+Claude Code stores session logs in:
 
 ```
-~/.claude/session-logs/
+~/.claude/projects/{project-name}/
 ```
+
+Where `{project-name}` is the working directory path with `/` replaced by `-`.
+
+By default, the uploader scans the current project's log directory. Use `--all-projects` to scan all projects.
 
 ## Upload State
 
-Upload state (deduplication tracking) is stored at:
+Upload state (deduplication tracking) is stored per-project at:
 
 ```
-~/.upload_state.json
+./.claude/sessync/upload-state.json
 ```
 
-This file tracks which UUIDs have been uploaded to prevent duplicates.
+This file tracks which UUIDs have been uploaded to prevent duplicates. Each project has its own state file to support uploading to different BigQuery destinations.
+
+## Project Structure
+
+```
+your-project/
+└── .claude/
+    └── bigquery/
+        ├── config.json              ← BigQuery settings (per-project)
+        ├── service-account-key.json ← GCP credentials (per-project)
+        ├── upload-state.json        ← Dedup state (auto-generated)
+        └── sessync       ← Binary
+```
 
 ## Troubleshooting
 
@@ -122,7 +147,8 @@ This file tracks which UUIDs have been uploaded to prevent duplicates.
 ### "No log files to process"
 
 - Verify Claude Code session logs are being created
-- Check that logs exist at `~/.claude/session-logs/`
+- Check that logs exist at `~/.claude/projects/{project-name}/`
+- Ensure you're running from the correct project directory
 
 ### "Failed to upload to BigQuery"
 
@@ -132,9 +158,39 @@ This file tracks which UUIDs have been uploaded to prevent duplicates.
 
 ## Integration with Claude Code
 
-To automatically upload after each session, add to your `.claude/hooks/session-end.sh`:
+### Automatic Upload (SessionEnd Hook)
 
-```bash
-#!/bin/bash
-/path/to/upload-to-bigquery --auto
+Add to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/sessync/sessync --auto",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
+
+### Manual Upload (Custom Command)
+
+Create `.claude/commands/save-session.md`:
+
+```markdown
+---
+description: Upload current session logs to BigQuery
+allowed-tools: Bash
+---
+
+!`./.claude/sessync/sessync`
+```
+
+Then use `/save-session` within Claude Code to upload mid-session.

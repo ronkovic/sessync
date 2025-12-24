@@ -51,7 +51,7 @@ pub fn parse_log_file(
         .to_string();
 
     let batch_id = Uuid::new_v4().to_string();
-    let partition_time = Utc::now();
+    let uploaded_at = Utc::now();
 
     let mut parsed_logs = Vec::new();
 
@@ -81,15 +81,17 @@ pub fn parse_log_file(
                     cwd: input.cwd,
                     git_branch: input.git_branch,
                     version: input.version,
-                    message: input.message,
-                    tool_use_result: input.tool_use_result,
+                    // Pass as serde_json::Value - custom serializer in models.rs
+                    // handles conversion to JSON string for BigQuery insertAll API
+                    message: input.message.clone(),
+                    tool_use_result: input.tool_use_result.clone(),
                     developer_id: config.developer_id.clone(),
                     hostname: hostname.clone(),
                     user_email: config.user_email.clone(),
                     project_name: config.project_name.clone(),
                     upload_batch_id: batch_id.clone(),
                     source_file: file_path.to_string_lossy().to_string(),
-                    partition_time,
+                    uploaded_at,
                 };
 
                 parsed_logs.push(output);

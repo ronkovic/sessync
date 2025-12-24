@@ -6,7 +6,7 @@
 
 ```
 [1] ログファイル生成
-    ~/.claude/session-logs/*.jsonl
+    ~/.claude/projects/{project-name}/*.jsonl
     Claude Code が自動生成
     ↓
 [2] ファイル検索 (parser::discover_log_files)
@@ -30,7 +30,7 @@
       - hostname (システムから取得)
       - upload_batch_id (UUID生成)
       - source_file (元ファイルパス)
-      - partition_time (アップロード時刻)
+      - uploaded_at (アップロード時刻)
     ↓
 [6] バッチアップロード (uploader::upload_to_bigquery)
     - upload_batch_size (デフォルト500) 単位でチャンク化
@@ -44,15 +44,15 @@
     - total_uploaded カウントを更新
     ↓
 [8] 状態保存 (dedup::UploadState::save)
-    - ~/.upload_state.json に JSON 保存
-    - 次回実行時に読み込まれる
+    - ./.claude/sessync/upload-state.json に JSON 保存
+    - 次回実行時に読み込まれる（プロジェクト単位）
 ```
 
 ## Phase 1: ログファイル生成
 
 ### ファイル形式
 - **フォーマット**: JSONL (JSON Lines)
-- **場所**: `~/.claude/session-logs/`
+- **場所**: `~/.claude/projects/{project-name}/` (project-nameはCWDの`/`を`-`に置換)
 - **命名**: Claude Code が自動的に命名
 - **内容**: セッションの各イベントが1行ずつ記録
 
@@ -197,7 +197,7 @@ pub struct SessionLogOutput {
     pub project_name: String,         // config.json から
     pub upload_batch_id: String,      // UUID生成
     pub source_file: String,          // ファイルパス
-    pub partition_time: DateTime<Utc>,  // 現在時刻
+    pub uploaded_at: DateTime<Utc>,  // 現在時刻
 }
 ```
 
@@ -211,7 +211,7 @@ let hostname = hostname::get()?.to_string_lossy().to_string();
 let batch_id = Uuid::new_v4().to_string();
 
 // パーティション時刻
-let partition_time = Utc::now();
+let uploaded_at = Utc::now();
 
 // 変換
 let output = SessionLogOutput {
@@ -228,7 +228,7 @@ let output = SessionLogOutput {
     project_name: config.project_name.clone(),
     upload_batch_id: batch_id.clone(),
     source_file: file_path.to_string_lossy().to_string(),
-    partition_time,
+    uploaded_at,
 };
 ```
 
@@ -244,7 +244,7 @@ let output = SessionLogOutput {
 | - | `hostname` | システムから取得 |
 | - | `upload_batch_id` | UUID生成 |
 | - | `source_file` | ファイルパス |
-| - | `partition_time` | 現在時刻 |
+| - | `uploaded_at` | 現在時刻 |
 
 ## Phase 6: バッチアップロード
 
@@ -385,8 +385,8 @@ SessionLogInput {
   "user_email": "dev@example.com",
   "project_name": "my-project",
   "upload_batch_id": "batch-xyz-456",
-  "source_file": "/Users/username/.claude/session-logs/2024-12-24.jsonl",
-  "_partitionTime": "2024-12-24T00:00:00Z"
+  "source_file": "/Users/username/.claude/projects/-Users-username-project/2024-12-24.jsonl",
+  "uploaded_at": "2024-12-24T00:00:00Z"
 }
 ```
 

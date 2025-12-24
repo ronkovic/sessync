@@ -41,10 +41,11 @@ Claude Codeが生成する各ログエントリには一意のUUIDが付与さ�
 ### ファイルパス
 
 ```
-~/.upload_state.json
+./.claude/sessync/upload-state.json
 ```
 
-ユーザーのホームディレクトリに保存され、すべてのプロジェクトで共有されます。
+プロジェクトディレクトリに保存され、各プロジェクトで独立して管理されます。
+これにより、異なるBigQueryへアップロードするプロジェクト間で重複排除状態が混在しません。
 
 ### 状態ファイルの内容
 
@@ -101,7 +102,7 @@ pub struct UploadState {
 
 ```
 [1] UploadState::load() で状態ファイル読み込み
-    - ~/.upload_state.json を読み込み
+    - ./.claude/sessync/upload-state.json を読み込み
     - ファイルが存在しない → 新規作成
     - uploaded_uuids を HashSet に格納
     ↓
@@ -125,7 +126,7 @@ pub struct UploadState {
 [6] UploadState::save() で状態ファイルに保存
     - HashSet を Vec に変換
     - JSON シリアライズ
-    - ~/.upload_state.json に書き込み
+    - ./.claude/sessync/upload-state.json に書き込み
 ```
 
 ### コード例
@@ -390,8 +391,8 @@ Row {
 ### 状態ファイルのリセット
 
 ```bash
-# 状態ファイルを削除
-rm ~/.upload_state.json
+# 状態ファイルを削除（プロジェクトディレクトリ内）
+rm ./.claude/sessync/upload-state.json
 
 # 次回実行時に新規作成される
 ```
@@ -402,23 +403,23 @@ rm ~/.upload_state.json
 
 ```bash
 # Pretty Print で確認
-cat ~/.upload_state.json | jq .
+cat ./.claude/sessync/upload-state.json | jq .
 
 # UUID数をカウント
-cat ~/.upload_state.json | jq '.uploaded_uuids | length'
+cat ./.claude/sessync/upload-state.json | jq '.uploaded_uuids | length'
 
 # 最終アップロード時刻を確認
-cat ~/.upload_state.json | jq '.last_upload_timestamp'
+cat ./.claude/sessync/upload-state.json | jq '.last_upload_timestamp'
 ```
 
 ### 手動編集
 
 ```bash
 # 特定のUUIDを削除
-cat ~/.upload_state.json | \
+cat ./.claude/sessync/upload-state.json | \
   jq '.uploaded_uuids = (.uploaded_uuids | map(select(. != "uuid-to-remove")))' \
-  > ~/.upload_state.json.tmp
-mv ~/.upload_state.json.tmp ~/.upload_state.json
+  > ./.claude/sessync/upload-state.json.tmp
+mv ./.claude/sessync/upload-state.json.tmp ./.claude/sessync/upload-state.json
 ```
 
 ## 関連ドキュメント

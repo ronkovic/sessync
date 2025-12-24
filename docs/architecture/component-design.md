@@ -29,7 +29,7 @@
 
 ```rust
 #[derive(Parser, Debug)]
-#[command(name = "upload-to-bigquery")]
+#[command(name = "sessync")]
 #[command(about = "Upload Claude Code session logs to BigQuery")]
 struct Args {
     /// Dry run mode - don't actually upload
@@ -45,7 +45,7 @@ struct Args {
     manual: bool,
 
     /// Config file path
-    #[arg(short, long, default_value = "./.claude/bigquery/config.json")]
+    #[arg(short, long, default_value = "./.claude/sessync/config.json")]
     config: String,
 }
 ```
@@ -64,15 +64,17 @@ async fn main() -> Result<()> {
     // 3. 設定読み込み
     let config = config::Config::load(&args.config)?;
 
-    // 4. 状態読み込み
-    let state_path = format!("{}/.upload_state.json", env::var("HOME")?);
+    // 4. 状態読み込み（プロジェクト単位）
+    let state_path = "./.claude/sessync/upload-state.json".to_string();
     let mut state = dedup::UploadState::load(&state_path)?;
 
     // 5. BigQuery認証
     let client = auth::create_bigquery_client(&config.service_account_key_path).await?;
 
-    // 6. ログファイル検索
-    let log_dir = format!("{}/.claude/session-logs", env::var("HOME")?);
+    // 6. ログファイル検索（現在のプロジェクトのログディレクトリ）
+    let home = env::var("HOME")?;
+    let cwd = env::current_dir()?.to_string_lossy().replace("/", "-");
+    let log_dir = format!("{}/.claude/projects/{}", home, cwd);
     let log_files = parser::discover_log_files(&log_dir)?;
 
     // 7. パースと変換
@@ -217,10 +219,10 @@ pub async fn create_bigquery_client(key_path: &str) -> Result<Client> {
 
 ```
 [1] キーファイルパスを受け取る
-    例: "~/.claude/bigquery/service-account-key.json"
+    例: "./.claude/sessync/service-account-key.json"
     ↓
-[2] shellexpand::tilde() でパス展開
-    → "/Users/username/.claude/bigquery/service-account-key.json"
+[2] shellexpand::tilde() でパス展開（必要に応じて）
+    → プロジェクトローカルの相対パスの場合はそのまま使用
     ↓
 [3] GOOGLE_APPLICATION_CREDENTIALS 環境変数にセット
     ↓
@@ -304,8 +306,7 @@ pub struct SessionLogOutput {
     pub project_name: String,
     pub upload_batch_id: String,
     pub source_file: String,
-    #[serde(rename = "_partitionTime")]
-    pub partition_time: DateTime<Utc>,
+    pub uploaded_at: DateTime<Utc>,
 }
 ```
 
@@ -494,7 +495,7 @@ pub fn parse_log_file(
     // メタデータ取得
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let batch_id = Uuid::new_v4().to_string();
-    let partition_time = Utc::now();
+    let uploaded_at = Utc::now();
 
     let mut parsed_logs = Vec::new();
 
@@ -526,7 +527,7 @@ pub fn parse_log_file(
                     project_name: config.project_name.clone(),
                     upload_batch_id: batch_id.clone(),
                     source_file: file_path.to_string_lossy().to_string(),
-                    partition_time,
+                    uploaded_at,
                 };
 
                 parsed_logs.push(output);

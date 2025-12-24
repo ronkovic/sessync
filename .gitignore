@@ -1,18 +1,17 @@
 # Rustビルド成果物
-.claude/bigquery-uploader/target/
 **/target/
 
 # 個人設定
-.claude/bigquery/config.json
-.claude/bigquery/upload-state.json
+.claude/sessync/config.json
+.claude/sessync/upload-state.json
 
 # Service Accountキーファイル（セキュリティ重要）
-.claude/bigquery/service-account-key.json
+.claude/sessync/service-account-key.json
 *.json.key
 service-account*.json
 
 # バイナリ
-.claude/bigquery/upload-to-bigquery
+.claude/sessync/sessync
 
 # IDEファイル
 .vscode/
