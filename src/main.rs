@@ -1,0 +1,112 @@
+use anyhow::Result;
+use chrono;
+use clap::Parser;
+use log::info;
+use uuid;
+
+mod config;
+mod models;
+mod auth;
+mod dedup;
+mod parser;
+mod uploader;
+
+#[derive(Parser, Debug)]
+#[command(name = "upload-to-bigquery")]
+#[command(about = "Upload Claude Code session logs to BigQuery", long_about = None)]
+struct Args {
+    /// Dry run mode - don't actually upload
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Automatic mode (called from session-end hook)
+    #[arg(long)]
+    auto: bool,
+
+    /// Manual mode (called by user command)
+    #[arg(long)]
+    manual: bool,
+
+    /// Config file path
+    #[arg(short, long, default_value = "./.claude/bigquery/config.json")]
+    config: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::init();
+
+    let args = Args::parse();
+
+    info!("Starting BigQuery uploader...");
+    info!("Config: {}", args.config);
+    info!("Dry run: {}", args.dry_run);
+
+    // Load configuration
+    let config = config::Config::load(&args.config)?;
+    println!("✓ Loaded configuration from: {}", args.config);
+    println!("  Project: {}", config.project_id);
+    println!("  Dataset: {}", config.dataset);
+    println!("  Table: {}", config.table);
+    println!("  Developer: {} ({})", config.developer_id, config.user_email);
+
+    // Load upload state
+    let state_path = format!("{}/.upload_state.json", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
+    let mut state = dedup::UploadState::load(&state_path)?;
+    println!("✓ Loaded upload state: {} records previously uploaded", state.total_uploaded);
+
+    // Create BigQuery client
+    let client = auth::create_bigquery_client(&config.service_account_key_path).await?;
+    println!("✓ Authenticated with BigQuery using service account");
+
+    // Discover log files
+    let log_dir = format!("{}/.claude/session-logs", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
+    let log_files = parser::discover_log_files(&log_dir)?;
+    println!("✓ Found {} log files in {}", log_files.len(), log_dir);
+
+    if log_files.is_empty() {
+        println!("No log files to process. Exiting.");
+        return Ok(());
+    }
+
+    // Parse and collect all logs
+    let mut all_logs = Vec::new();
+    for log_file in &log_files {
+        let parsed = parser::parse_log_file(log_file, &config, &state)?;
+        all_logs.extend(parsed);
+    }
+
+    println!("✓ Parsed {} records total", all_logs.len());
+
+    if all_logs.is_empty() {
+        println!("No new records to upload. Exiting.");
+        return Ok(());
+    }
+
+    // Upload to BigQuery
+    if args.dry_run {
+        println!("✓ Dry-run mode (not actually uploading)");
+        println!("  Would upload {} records", all_logs.len());
+    }
+
+    let uploaded_uuids = uploader::upload_to_bigquery(
+        &client,
+        &config,
+        all_logs,
+        args.dry_run,
+    ).await?;
+
+    if !args.dry_run && !uploaded_uuids.is_empty() {
+        // Update and save state
+        let batch_id = uuid::Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        state.add_uploaded(uploaded_uuids.clone(), batch_id, timestamp);
+        state.total_uploaded += uploaded_uuids.len() as u64;
+        state.save(&state_path)?;
+        println!("✓ Updated upload state: {} total records uploaded", state.total_uploaded);
+    }
+
+    println!("✓ Upload complete!");
+
+    Ok(())
+}
