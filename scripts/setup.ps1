@@ -1,10 +1,12 @@
-# sessync セットアップスクリプト (Windows)
+# sessync セットアップスクリプト (Windows) - 対話式
 # 使い方: PowerShellで実行
 #   iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex
-#   .\setup.ps1 -Version v0.1.0  # バージョン指定
+#   .\setup.ps1 -Version v0.1.0                    # バージョン指定
+#   .\setup.ps1 -ProjectDir C:\path\to\project     # プロジェクトパス指定（非対話）
 
 param(
-    [string]$Version = "latest"
+    [string]$Version = "latest",
+    [string]$ProjectDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +15,48 @@ $Repo = "ronkovic/sessync"
 function Write-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
 function Write-Err  { param($msg) Write-Host "[ERROR] $msg" -ForegroundColor Red; exit 1 }
+function Write-Prompt { param($msg) Write-Host "[?] $msg" -ForegroundColor Cyan }
+
+# プロジェクトディレクトリの選択（対話式）
+function Select-ProjectDir {
+    if ($ProjectDir -ne "") {
+        # 引数で指定された場合
+        if (-not (Test-Path $ProjectDir -PathType Container)) {
+            Write-Err "Directory not found: $ProjectDir"
+        }
+        $script:ProjectDir = (Resolve-Path $ProjectDir).Path
+        return
+    }
+
+    Write-Host ""
+    Write-Prompt "sessyncをインストールするプロジェクトフォルダを入力してください"
+    Write-Host "  (空白でEnter = 現在のディレクトリ: $(Get-Location))" -ForegroundColor Yellow
+    Write-Host ""
+    $inputDir = Read-Host ">"
+
+    if ([string]::IsNullOrWhiteSpace($inputDir)) {
+        $script:ProjectDir = (Get-Location).Path
+        Write-Info "Using current directory: $script:ProjectDir"
+    } else {
+        # 環境変数展開
+        $inputDir = [Environment]::ExpandEnvironmentVariables($inputDir)
+
+        if (-not (Test-Path $inputDir -PathType Container)) {
+            Write-Host ""
+            Write-Prompt "ディレクトリが存在しません: $inputDir"
+            $createDir = Read-Host "  作成しますか? [y/N]"
+            if ($createDir -match "^[Yy]$") {
+                New-Item -ItemType Directory -Force -Path $inputDir | Out-Null
+                Write-Info "Created directory: $inputDir"
+            } else {
+                Write-Err "Directory not found: $inputDir"
+            }
+        }
+
+        $script:ProjectDir = (Resolve-Path $inputDir).Path
+        Write-Info "Target directory: $script:ProjectDir"
+    }
+}
 
 # 最新バージョン取得
 function Get-LatestVersion {
@@ -56,15 +100,85 @@ function Install-Binary {
     Write-Info "Binary: .claude\sessync\sessync.exe"
 }
 
-# config.json (新規のみ)
+# config.json (対話式設定)
 function Setup-ConfigJson {
-    if (-not (Test-Path ".claude\sessync\config.json")) {
-        Invoke-WebRequest "https://raw.githubusercontent.com/$Repo/main/examples/config.json.example" `
-            -OutFile ".claude\sessync\config.json" -UseBasicParsing
-        Write-Info "Created: .claude\sessync\config.json (要編集)"
-    } else {
+    if (Test-Path ".claude\sessync\config.json") {
         Write-Warn "Exists: .claude\sessync\config.json (skipped)"
+        return
     }
+
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "  BigQuery設定" -ForegroundColor Cyan
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host ""
+
+    # project_name
+    $projectBasename = Split-Path $ProjectDir -Leaf
+    Write-Prompt "プロジェクト名 (default: $projectBasename)"
+    $cfgProjectName = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgProjectName)) { $cfgProjectName = $projectBasename }
+
+    # project_id
+    Write-Prompt "GCPプロジェクトID (default: $cfgProjectName)"
+    $cfgProjectId = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgProjectId)) { $cfgProjectId = $cfgProjectName }
+
+    # dataset
+    Write-Prompt "BigQueryデータセット名 (default: claude_sessions)"
+    $cfgDataset = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgDataset)) { $cfgDataset = "claude_sessions" }
+
+    # table
+    Write-Prompt "BigQueryテーブル名 (default: session_logs)"
+    $cfgTable = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgTable)) { $cfgTable = "session_logs" }
+
+    # location
+    Write-Prompt "BigQueryロケーション (default: US)"
+    $cfgLocation = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgLocation)) { $cfgLocation = "US" }
+
+    # developer_id
+    $defaultDevId = $env:USERNAME
+    Write-Prompt "開発者ID (default: $defaultDevId)"
+    $cfgDeveloperId = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgDeveloperId)) { $cfgDeveloperId = $defaultDevId }
+
+    # user_email
+    $defaultEmail = ""
+    try { $defaultEmail = git config --global user.email 2>$null } catch {}
+    if ($defaultEmail) {
+        Write-Prompt "メールアドレス (default: $defaultEmail)"
+    } else {
+        Write-Prompt "メールアドレス"
+    }
+    $cfgUserEmail = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgUserEmail)) { $cfgUserEmail = $defaultEmail }
+
+    # service_account_key_path
+    Write-Prompt "サービスアカウントキーパス (default: .\.claude\sessync\service-account-key.json)"
+    $cfgKeyPath = Read-Host ">"
+    if ([string]::IsNullOrWhiteSpace($cfgKeyPath)) { $cfgKeyPath = ".\.claude\sessync\service-account-key.json" }
+
+    # config.json を生成
+    $config = @{
+        project_id = $cfgProjectId
+        dataset = $cfgDataset
+        table = $cfgTable
+        location = $cfgLocation
+        upload_batch_size = 500
+        enable_auto_upload = $true
+        enable_deduplication = $true
+        developer_id = $cfgDeveloperId
+        user_email = $cfgUserEmail
+        project_name = $cfgProjectName
+        service_account_key_path = $cfgKeyPath
+    }
+
+    $config | ConvertTo-Json -Depth 10 | Set-Content ".claude\sessync\config.json" -Encoding UTF8
+    Write-Info "Created: .claude\sessync\config.json"
+    Write-Host ""
 }
 
 # settings.json (マージ)
@@ -153,6 +267,15 @@ function Setup-Gitignore {
 Write-Host "========================================"
 Write-Host "  sessync Setup Script (Windows)"
 Write-Host "========================================"
+
+# プロジェクトディレクトリ選択（対話式）
+Select-ProjectDir
+
+# プロジェクトディレクトリに移動
+Set-Location $ProjectDir
+
+Write-Host ""
+Write-Host "Installing to: $ProjectDir" -ForegroundColor Cyan
 Write-Host ""
 
 if ($Version -eq "latest") {
@@ -173,9 +296,11 @@ Setup-Gitignore
 Write-Host ""
 Write-Host "✅ sessync installed!" -ForegroundColor Green
 Write-Host ""
+Write-Host "Installed to: $ProjectDir"
+Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Edit .claude\sessync\config.json with your BigQuery settings"
+Write-Host "  1. Edit $ProjectDir\.claude\sessync\config.json with your BigQuery settings"
 Write-Host "  2. Add your service account key:"
-Write-Host "     Copy-Item C:\path\to\key.json .claude\sessync\service-account-key.json"
-Write-Host "  3. Test: .\.claude\sessync\sessync.exe --dry-run"
+Write-Host "     Copy-Item C:\path\to\key.json $ProjectDir\.claude\sessync\service-account-key.json"
+Write-Host "  3. Test: cd $ProjectDir; .\.claude\sessync\sessync.exe --dry-run"
 Write-Host ""

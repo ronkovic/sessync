@@ -1,24 +1,28 @@
 #!/bin/bash
 set -e
 
-# sessync セットアップスクリプト
-# 使い方: 対象プロジェクトのルートから実行
+# sessync セットアップスクリプト（対話式）
+# 使い方:
 #   curl -sSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.sh | bash
-#   curl -sSL ... | bash -s v0.1.0  # バージョン指定
+#   curl -sSL ... | bash -s -- -v v0.1.0           # バージョン指定
+#   curl -sSL ... | bash -s -- -p /path/to/project # プロジェクトパス指定（非対話）
 
 REPO="ronkovic/sessync"
-VERSION="${1:-latest}"
+VERSION="latest"
+PROJECT_DIR=""
 TEMP_FILE=""
 
 # 色付き出力
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+prompt() { echo -e "${CYAN}[?]${NC} $1"; }
 
 # クリーンアップ
 cleanup() {
@@ -27,6 +31,79 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+# 引数パース
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -v|--version)
+        VERSION="$2"
+        shift 2
+        ;;
+      -p|--project)
+        PROJECT_DIR="$2"
+        shift 2
+        ;;
+      -h|--help)
+        echo "Usage: setup.sh [-v VERSION] [-p PROJECT_DIR]"
+        echo ""
+        echo "Options:"
+        echo "  -v, --version VERSION   Specify version (default: latest)"
+        echo "  -p, --project PATH      Project directory (skip interactive prompt)"
+        echo "  -h, --help              Show this help"
+        exit 0
+        ;;
+      *)
+        # 位置引数としてバージョンを受け付ける（後方互換性）
+        if [ "$VERSION" = "latest" ]; then
+          VERSION="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+}
+
+# プロジェクトディレクトリの選択（対話式）
+select_project_dir() {
+  if [ -n "$PROJECT_DIR" ]; then
+    # 引数で指定された場合
+    if [ ! -d "$PROJECT_DIR" ]; then
+      error "Directory not found: $PROJECT_DIR"
+    fi
+    PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
+    return
+  fi
+
+  echo ""
+  prompt "sessyncをインストールするプロジェクトフォルダを入力してください"
+  echo -e "  ${YELLOW}(空白でEnter = 現在のディレクトリ: $(pwd))${NC}"
+  echo ""
+  read -r -p "> " input_dir
+
+  if [ -z "$input_dir" ]; then
+    PROJECT_DIR="$(pwd)"
+    info "Using current directory: $PROJECT_DIR"
+  else
+    # チルダ展開
+    input_dir="${input_dir/#\~/$HOME}"
+
+    if [ ! -d "$input_dir" ]; then
+      echo ""
+      prompt "ディレクトリが存在しません: $input_dir"
+      read -r -p "  作成しますか? [y/N] " create_dir
+      if [[ "$create_dir" =~ ^[Yy]$ ]]; then
+        mkdir -p "$input_dir"
+        info "Created directory: $input_dir"
+      else
+        error "Directory not found: $input_dir"
+      fi
+    fi
+
+    PROJECT_DIR=$(cd "$input_dir" && pwd)
+    info "Target directory: $PROJECT_DIR"
+  fi
+}
 
 # プラットフォーム検出
 detect_platform() {
@@ -87,15 +164,90 @@ download_binary() {
   info "Binary: .claude/sessync/sessync"
 }
 
-# config.json (新規のみ)
+# config.json (対話式設定)
 setup_config_json() {
-  if [ ! -f .claude/sessync/config.json ]; then
-    curl -sfL "https://raw.githubusercontent.com/$REPO/main/examples/config.json.example" \
-      -o .claude/sessync/config.json
-    info "Created: .claude/sessync/config.json (要編集)"
-  else
+  if [ -f .claude/sessync/config.json ]; then
     warn "Exists: .claude/sessync/config.json (skipped)"
+    return
   fi
+
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${CYAN}  BigQuery設定${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+
+  # project_name
+  local project_basename
+  project_basename=$(basename "$PROJECT_DIR")
+  prompt "プロジェクト名 (default: $project_basename)"
+  read -r -p "> " cfg_project_name
+  cfg_project_name="${cfg_project_name:-$project_basename}"
+
+  # project_id
+  prompt "GCPプロジェクトID (default: $cfg_project_name)"
+  read -r -p "> " cfg_project_id
+  cfg_project_id="${cfg_project_id:-$cfg_project_name}"
+
+  # dataset
+  prompt "BigQueryデータセット名 (default: claude_sessions)"
+  read -r -p "> " cfg_dataset
+  cfg_dataset="${cfg_dataset:-claude_sessions}"
+
+  # table
+  prompt "BigQueryテーブル名 (default: session_logs)"
+  read -r -p "> " cfg_table
+  cfg_table="${cfg_table:-session_logs}"
+
+  # location
+  prompt "BigQueryロケーション (default: US)"
+  read -r -p "> " cfg_location
+  cfg_location="${cfg_location:-US}"
+
+  # developer_id
+  local default_dev_id
+  default_dev_id=$(whoami)
+  prompt "開発者ID (default: $default_dev_id)"
+  read -r -p "> " cfg_developer_id
+  cfg_developer_id="${cfg_developer_id:-$default_dev_id}"
+
+  # user_email
+  local default_email=""
+  if command -v git &>/dev/null; then
+    default_email=$(git config --global user.email 2>/dev/null || echo "")
+  fi
+  if [ -n "$default_email" ]; then
+    prompt "メールアドレス (default: $default_email)"
+  else
+    prompt "メールアドレス"
+  fi
+  read -r -p "> " cfg_user_email
+  cfg_user_email="${cfg_user_email:-$default_email}"
+
+  # service_account_key_path
+  prompt "サービスアカウントキーパス (default: ./.claude/sessync/service-account-key.json)"
+  read -r -p "> " cfg_key_path
+  cfg_key_path="${cfg_key_path:-./.claude/sessync/service-account-key.json}"
+
+  # config.json を生成
+  cat > .claude/sessync/config.json << EOF
+{
+  "project_id": "$cfg_project_id",
+  "dataset": "$cfg_dataset",
+  "table": "$cfg_table",
+  "location": "$cfg_location",
+  "upload_batch_size": 500,
+  "enable_auto_upload": true,
+  "enable_deduplication": true,
+  "developer_id": "$cfg_developer_id",
+  "user_email": "$cfg_user_email",
+  "project_name": "$cfg_project_name",
+  "service_account_key_path": "$cfg_key_path"
+}
+EOF
+
+  info "Created: .claude/sessync/config.json"
+  echo ""
 }
 
 # settings.json (マージ)
@@ -206,6 +358,18 @@ main() {
   echo "========================================"
   echo "  sessync Setup Script"
   echo "========================================"
+
+  # 引数パース
+  parse_args "$@"
+
+  # プロジェクトディレクトリ選択（対話式）
+  select_project_dir
+
+  # プロジェクトディレクトリに移動
+  cd "$PROJECT_DIR" || error "Failed to change directory: $PROJECT_DIR"
+
+  echo ""
+  echo -e "Installing to: ${CYAN}$PROJECT_DIR${NC}"
   echo ""
 
   detect_platform
@@ -226,12 +390,14 @@ main() {
   echo ""
   echo -e "${GREEN}✅ sessync installed!${NC}"
   echo ""
+  echo "Installed to: $PROJECT_DIR"
+  echo ""
   echo "Next steps:"
-  echo "  1. Edit .claude/sessync/config.json with your BigQuery settings"
+  echo "  1. Edit $PROJECT_DIR/.claude/sessync/config.json with your BigQuery settings"
   echo "  2. Add your service account key:"
-  echo "     cp /path/to/key.json .claude/sessync/service-account-key.json"
-  echo "  3. Test: ./.claude/sessync/sessync --dry-run"
+  echo "     cp /path/to/key.json $PROJECT_DIR/.claude/sessync/service-account-key.json"
+  echo "  3. Test: cd $PROJECT_DIR && ./.claude/sessync/sessync --dry-run"
   echo ""
 }
 
-main
+main "$@"
