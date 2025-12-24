@@ -29,3 +29,7 @@ lcov.info
 # Claude Code
 .claude/session-logs/
 .claude/plans/
+
+# MCP related (auto-generated / user-specific)
+.kiri/
+.mcp.json
