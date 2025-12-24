@@ -136,15 +136,35 @@ CLUSTER BY session_id, developer_id;
 
 ## Step 5: ローカル設定
 
-### 5.1 config.json を更新
+### 5.1 対話式セットアップ（推奨）
 
-プロジェクトディレクトリ内の `.claude/sessync/config.json` を編集:
+セットアップスクリプトを使用すると、対話形式でconfig.jsonを設定できます：
+
+**Linux / macOS:**
+```bash
+curl -sSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex
+```
+
+スクリプトは以下をプロンプトで設定します：
+- インストール先プロジェクトフォルダ
+- GCPプロジェクトID / データセット名 / テーブル名
+- 開発者ID / メールアドレス
+- サービスアカウントキーパス
+
+### 5.2 手動設定（オプション）
+
+手動で設定する場合は `.claude/sessync/config.json` を編集:
 
 ```json
 {
   "project_id": "YOUR-PROJECT-ID",
   "dataset": "claude_sessions",
-  "table": "session_logs_v2",
+  "table": "session_logs",
   "location": "US",
   "upload_batch_size": 500,
   "enable_auto_upload": true,
@@ -156,29 +176,30 @@ CLUSTER BY session_id, developer_id;
 }
 ```
 
-### 5.2 設定項目の説明
+### 5.3 設定項目の説明
 
-| 項目 | 説明 |
-|------|------|
-| `project_id` | GCPプロジェクトID |
-| `dataset` | BigQueryデータセット名 |
-| `table` | BigQueryテーブル名 |
-| `location` | データセットのロケーション |
-| `upload_batch_size` | 1バッチあたりのレコード数 |
-| `developer_id` | 開発者識別子（チーム内で一意） |
-| `user_email` | 開発者のメールアドレス |
-| `project_name` | プロジェクト名 |
+| 項目 | 説明 | デフォルト |
+|------|------|-----------|
+| `project_id` | GCPプロジェクトID | プロジェクト名 |
+| `dataset` | BigQueryデータセット名 | `claude_sessions` |
+| `table` | BigQueryテーブル名 | `session_logs` |
+| `location` | データセットのロケーション | `US` |
+| `upload_batch_size` | 1バッチあたりのレコード数 | `500` |
+| `developer_id` | 開発者識別子 | ユーザー名 |
+| `user_email` | 開発者のメールアドレス | git config user.email |
+| `project_name` | プロジェクト名 | フォルダ名 |
 
 ---
 
 ## Step 6: 動作確認
 
-### 6.1 ビルドとデプロイ
+### 6.1 サービスアカウントキーの配置
+
+セットアップスクリプト実行後、サービスアカウントキーを配置:
+
 ```bash
-cd /path/to/claude-session-analytics
-cargo build --release
-cp ./target/release/sessync ./.claude/sessync/sessync
-chmod +x ./.claude/sessync/sessync
+cp ~/Downloads/YOUR-KEY.json .claude/sessync/service-account-key.json
+chmod 600 .claude/sessync/service-account-key.json
 ```
 
 ### 6.2 Dry-runテスト（アップロードなし）

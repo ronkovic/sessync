@@ -2,11 +2,63 @@
 
 ## Prerequisites
 
-1. **Rust toolchain** - Install from https://rustup.rs/
-2. **GCP Service Account** - With BigQuery permissions
-3. **Service Account Key** - JSON key file for authentication
+1. **GCP Service Account** - With BigQuery permissions
+2. **Service Account Key** - JSON key file for authentication
 
-## Setup
+## Quick Setup (Recommended)
+
+対話式セットアップスクリプトを使用：
+
+**Linux / macOS:**
+```bash
+curl -sSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex
+```
+
+### セットアップスクリプトのオプション
+
+| オプション | 説明 |
+|-----------|------|
+| `-p PATH` / `-ProjectDir PATH` | インストール先ディレクトリ（非対話モード） |
+| `-v VERSION` / `-Version VERSION` | バージョン指定（例: v0.1.0） |
+| `-h` / `--help` | ヘルプ表示 |
+
+```bash
+# 例: 特定ディレクトリに非対話でインストール
+curl -sSL .../setup.sh | bash -s -- -p /path/to/project -v v0.1.0
+```
+
+### 対話式プロンプト
+
+セットアップスクリプトは以下を対話形式で設定します：
+
+1. **インストール先フォルダ** - Enterで現在のディレクトリ
+2. **BigQuery設定:**
+   - プロジェクト名（デフォルト: フォルダ名）
+   - GCPプロジェクトID（デフォルト: プロジェクト名）
+   - データセット名（デフォルト: claude_sessions）
+   - テーブル名（デフォルト: session_logs）
+   - ロケーション（デフォルト: US）
+   - 開発者ID（デフォルト: ユーザー名）
+   - メールアドレス（デフォルト: git config user.email）
+   - サービスアカウントキーパス
+
+セットアップ後、サービスアカウントキーを配置してください：
+
+```bash
+cp /path/to/your-key.json .claude/sessync/service-account-key.json
+chmod 600 .claude/sessync/service-account-key.json
+```
+
+---
+
+## Manual Setup
+
+手動でセットアップする場合：
 
 ### 1. Install Rust
 
@@ -29,7 +81,7 @@ Edit `.claude/sessync/config.json` with your settings:
 {
   "project_id": "your-gcp-project-id",
   "dataset": "claude_sessions",
-  "table": "session_logs_v2",
+  "table": "session_logs",
   "location": "US",
   "upload_batch_size": 500,
   "enable_auto_upload": true,

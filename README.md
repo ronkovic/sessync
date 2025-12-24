@@ -20,9 +20,9 @@ Claude Codeのセッションログを BigQuery にアップロードするRust�
 
 ## インストール
 
-### ワンライナーインストール（推奨）
+### 対話式インストール（推奨）
 
-対象プロジェクトのルートディレクトリで実行：
+任意のディレクトリから実行すると、対話形式でセットアップできます：
 
 **Linux / macOS:**
 ```bash
@@ -34,9 +34,28 @@ curl -sSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.
 iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex
 ```
 
-セットアップスクリプトは以下を自動で行います：
+対話式セットアップでは以下を入力します：
+1. **インストール先プロジェクトフォルダ**（Enterで現在のディレクトリ）
+2. **BigQuery設定**
+   - プロジェクト名 / GCPプロジェクトID
+   - データセット名 / テーブル名 / ロケーション
+   - 開発者ID / メールアドレス
+   - サービスアカウントキーパス
+
+### 非対話モード
+
+```bash
+# Linux/macOS - パス指定
+curl -sSL .../setup.sh | bash -s -- -p /path/to/project
+
+# Windows - パス指定
+.\setup.ps1 -ProjectDir C:\path\to\project
+```
+
+### セットアップスクリプトの処理内容
+
 - プラットフォームに応じたバイナリのダウンロード
-- 設定ファイルテンプレートの配置
+- BigQuery設定ファイルの対話式作成
 - SessionEndフックの設定
 - `/save-session`コマンドの追加
 - `.gitignore`への機密ファイル追加
@@ -55,30 +74,16 @@ cp examples/config.json.example .claude/sessync/config.json
 vi .claude/sessync/config.json
 ```
 
-## セットアップ
+## セットアップ後の作業
 
-### 1. BigQuery設定
-
-`.claude/sessync/config.json`を編集：
-
-```json
-{
-  "project_id": "your-gcp-project-id",
-  "dataset": "claude_sessions",
-  "table": "session_logs",
-  "developer_id": "your-name",
-  "user_email": "your.email@example.com"
-}
-```
-
-### 2. サービスアカウントキー
+### サービスアカウントキーの配置
 
 ```bash
 cp ~/Downloads/your-key.json .claude/sessync/service-account-key.json
 chmod 600 .claude/sessync/service-account-key.json
 ```
 
-### 3. 動作確認
+### 動作確認
 
 ```bash
 ./.claude/sessync/sessync --dry-run
