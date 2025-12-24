@@ -129,11 +129,11 @@ This file tracks which UUIDs have been uploaded to prevent duplicates. Each proj
 ```
 your-project/
 └── .claude/
-    └── bigquery/
+    └── sessync/
         ├── config.json              ← BigQuery settings (per-project)
         ├── service-account-key.json ← GCP credentials (per-project)
         ├── upload-state.json        ← Dedup state (auto-generated)
-        └── sessync       ← Binary
+        └── sessync                  ← Binary
 ```
 
 ## Troubleshooting
