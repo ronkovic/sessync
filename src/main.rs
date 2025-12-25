@@ -35,11 +35,9 @@ struct Args {
 }
 
 /// Convert a path to a Claude project name
-/// Claude Code replaces '/' with '-' in project names
+/// Claude Code replaces '/' with '-' in project names (including leading '/')
 pub fn path_to_project_name(path: &str) -> String {
-    // Remove leading slash for root paths like /Users/...
-    let normalized = path.strip_prefix('/').unwrap_or(path);
-    normalized.replace('/', "-")
+    path.replace('/', "-")
 }
 
 /// Get the log directory for a specific project
@@ -183,7 +181,7 @@ mod tests {
     #[test]
     fn test_path_to_project_name_absolute() {
         let result = path_to_project_name("/Users/ronkovic/workspace/project");
-        assert_eq!(result, "Users-ronkovic-workspace-project");
+        assert_eq!(result, "-Users-ronkovic-workspace-project");
     }
 
     #[test]
@@ -201,13 +199,13 @@ mod tests {
     #[test]
     fn test_path_to_project_name_with_root() {
         let result = path_to_project_name("/");
-        assert_eq!(result, "");
+        assert_eq!(result, "-");
     }
 
     #[test]
     fn test_get_project_log_dir() {
         let result = get_project_log_dir("/home/user", "/workspace/myproject");
-        assert_eq!(result, "/home/user/.claude/projects/workspace-myproject");
+        assert_eq!(result, "/home/user/.claude/projects/-workspace-myproject");
     }
 
     #[test]
