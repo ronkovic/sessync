@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use google_cloud_bigquery::client::Client;
 use google_cloud_bigquery::http::tabledata::insert_all::{
     InsertAllRequest, InsertAllResponse, Row,
@@ -16,15 +17,16 @@ use crate::models::SessionLogOutput;
 /// Trait for BigQuery insert operations
 /// This enables mocking in tests while using the real client in production
 #[cfg_attr(test, automock)]
+#[async_trait]
 pub trait BigQueryInserter: Send + Sync {
     /// Insert rows into a BigQuery table
-    fn insert(
+    async fn insert(
         &self,
         project_id: &str,
         dataset: &str,
         table: &str,
         request: &InsertAllRequest<SessionLogOutput>,
-    ) -> impl std::future::Future<Output = Result<InsertAllResponse>> + Send;
+    ) -> Result<InsertAllResponse>;
 }
 
 /// Real BigQuery client wrapper implementing BigQueryInserter
@@ -38,6 +40,7 @@ impl<'a> RealBigQueryClient<'a> {
     }
 }
 
+#[async_trait]
 impl BigQueryInserter for RealBigQueryClient<'_> {
     async fn insert(
         &self,
@@ -54,9 +57,63 @@ impl BigQueryInserter for RealBigQueryClient<'_> {
     }
 }
 
+/// BigQuery client that owns the Client instance
+pub struct OwnedBigQueryClient {
+    client: Client,
+}
+
+impl OwnedBigQueryClient {
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait]
+impl BigQueryInserter for OwnedBigQueryClient {
+    async fn insert(
+        &self,
+        project_id: &str,
+        dataset: &str,
+        table: &str,
+        request: &InsertAllRequest<SessionLogOutput>,
+    ) -> Result<InsertAllResponse> {
+        self.client
+            .tabledata()
+            .insert(project_id, dataset, table, request)
+            .await
+            .context("BigQuery insert failed")
+    }
+}
+
+/// Factory for creating BigQuery clients
+#[async_trait]
+pub trait BigQueryClientFactory: Send + Sync {
+    async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>>;
+}
+
+/// Production implementation of BigQueryClientFactory
+pub struct RealClientFactory {
+    key_path: String,
+}
+
+impl RealClientFactory {
+    pub fn new(key_path: String) -> Self {
+        Self { key_path }
+    }
+}
+
+#[async_trait]
+impl BigQueryClientFactory for RealClientFactory {
+    async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>> {
+        let client = crate::auth::create_bigquery_client(&self.key_path).await?;
+        Ok(Box::new(OwnedBigQueryClient::new(client)))
+    }
+}
+
 // Retry configuration based on Google Cloud best practices
 // See: https://cloud.google.com/bigquery/docs/streaming-data-into-bigquery
 pub const MAX_RETRIES: u32 = 5;
+pub const MAX_CONNECTION_RESETS: u32 = 3; // Max number of times to recreate client
 pub const INITIAL_RETRY_DELAY_MS: u64 = 1000; // 1 second (Google recommends starting small)
 pub const MAX_RETRY_DELAY_MS: u64 = 32000; // 32 seconds max
 pub const BATCH_DELAY_MS: u64 = 200; // 200ms between batches to avoid rate limits
@@ -78,8 +135,21 @@ fn error_chain_to_string(e: &anyhow::Error) -> String {
     messages.join(" | ")
 }
 
-/// Check if an error message indicates a retryable error
-pub fn is_retryable_error(error_msg: &str) -> bool {
+/// Check if an error requires connection reset (new client creation)
+pub fn is_connection_error(error_msg: &str) -> bool {
+    error_msg.contains("Broken pipe")
+        || error_msg.contains("broken pipe")
+        || error_msg.contains("Connection reset")
+        || error_msg.contains("connection reset")
+        || error_msg.contains("Connection refused")
+        || error_msg.contains("connection refused")
+        || error_msg.contains("connection error")
+        || error_msg.contains("EOF")
+        || error_msg.contains("unexpected end of file")
+}
+
+/// Check if an error is transient (can retry with same client)
+pub fn is_transient_error(error_msg: &str) -> bool {
     error_msg.contains("not found")
         || error_msg.contains("deleted")
         || error_msg.contains("503")
@@ -89,14 +159,13 @@ pub fn is_retryable_error(error_msg: &str) -> bool {
         || error_msg.contains("rate")
         || error_msg.contains("quota")
         || error_msg.contains("Quota")
-        // Network errors
-        || error_msg.contains("connection")
-        || error_msg.contains("Connection")
-        || error_msg.contains("Broken pipe")
-        || error_msg.contains("broken pipe")
         || error_msg.contains("timeout")
         || error_msg.contains("Timeout")
-        || error_msg.contains("reset")
+}
+
+/// Check if an error message indicates a retryable error
+pub fn is_retryable_error(error_msg: &str) -> bool {
+    is_connection_error(error_msg) || is_transient_error(error_msg)
 }
 
 /// Check if an error indicates the request was too large (413)
@@ -225,6 +294,163 @@ fn upload_batch_with_split<'a, T: BigQueryInserter>(
     })
 }
 
+/// Upload batch with automatic client recreation on connection errors
+fn upload_batch_with_split_resilient<'a, F: BigQueryClientFactory>(
+    factory: &'a F,
+    config: &'a Config,
+    chunk: &'a [SessionLogOutput],
+    batch_num: usize,
+    total_batches: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + 'a>> {
+    Box::pin(async move {
+    const MIN_BATCH_SIZE: usize = 10;
+    const MAX_CONNECTION_RESETS: u32 = 3;
+
+    let rows = prepare_rows(chunk);
+    let request = InsertAllRequest {
+        rows,
+        skip_invalid_rows: None,
+        ignore_unknown_values: None,
+        template_suffix: None,
+        trace_id: None,
+    };
+
+    let mut retry_count = 0;
+    let mut connection_reset_count = 0;
+
+    // Create initial client
+    let mut client = factory.create_client().await?;
+
+    loop {
+        match client
+            .insert(&config.project_id, &config.dataset, &config.table, &request)
+            .await
+        {
+            Ok(response) => {
+                if let Some(errors) = response.insert_errors {
+                    println!("⚠ Batch {} had errors:", batch_num);
+                    for error in &errors {
+                        println!("  Row {}: {:?}", error.index, error.errors);
+                    }
+                    return Ok(Vec::new());
+                } else {
+                    println!("✓ Batch {} uploaded successfully", batch_num);
+                    if connection_reset_count > 0 {
+                        println!("  (recovered after {} connection resets)", connection_reset_count);
+                    }
+                    return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
+                }
+            }
+            Err(e) => {
+                let error_msg = error_chain_to_string(&e);
+
+                // Check if request is too large - split and retry
+                if is_request_too_large_error(&error_msg) {
+                    if chunk.len() <= MIN_BATCH_SIZE {
+                        println!(
+                            "✗ Batch {} is too large even at minimum size ({})",
+                            batch_num,
+                            chunk.len()
+                        );
+                        return Err(e).context("Batch too large even at minimum size");
+                    }
+
+                    let mid = chunk.len() / 2;
+                    println!(
+                        "⚠ Batch {} too large ({} records), splitting into {} and {}...",
+                        batch_num,
+                        chunk.len(),
+                        mid,
+                        chunk.len() - mid
+                    );
+
+                    // Split and upload both halves
+                    let mut uploaded = Vec::new();
+                    uploaded.extend(
+                        upload_batch_with_split_resilient(
+                            factory,
+                            config,
+                            &chunk[..mid],
+                            batch_num,
+                            total_batches,
+                        )
+                        .await?,
+                    );
+                    uploaded.extend(
+                        upload_batch_with_split_resilient(
+                            factory,
+                            config,
+                            &chunk[mid..],
+                            batch_num,
+                            total_batches,
+                        )
+                        .await?,
+                    );
+                    return Ok(uploaded);
+                }
+
+                // Connection error - recreate client
+                if is_connection_error(&error_msg) {
+                    connection_reset_count += 1;
+
+                    if connection_reset_count > MAX_CONNECTION_RESETS {
+                        println!(
+                            "✗ Batch {} failed after {} connection resets: {}",
+                            batch_num, connection_reset_count, error_msg
+                        );
+                        return Err(e).context("Too many connection resets");
+                    }
+
+                    println!(
+                        "⚠ Batch {} connection error (reset #{}), creating new client: {}",
+                        batch_num, connection_reset_count, error_msg
+                    );
+
+                    // Create new client
+                    match factory.create_client().await {
+                        Ok(new_client) => {
+                            client = new_client;
+                            println!("  ✓ New client created successfully");
+
+                            // Wait before retrying with new connection
+                            let delay = calculate_retry_delay(connection_reset_count);
+                            sleep(Duration::from_millis(delay)).await;
+
+                            // Reset retry count for new connection
+                            retry_count = 0;
+                            continue;
+                        }
+                        Err(client_err) => {
+                            println!("✗ Failed to create new client: {}", client_err);
+                            return Err(client_err).context("Failed to recreate BigQuery client");
+                        }
+                    }
+                }
+
+                // Transient error - retry with same client
+                if is_transient_error(&error_msg) && retry_count < MAX_RETRIES {
+                    retry_count += 1;
+                    let delay = calculate_retry_delay(retry_count);
+                    println!(
+                        "⚠ Batch {} transient error (attempt {}), retrying in {}ms: {}",
+                        batch_num, retry_count, delay, error_msg
+                    );
+                    sleep(Duration::from_millis(delay)).await;
+                    continue;
+                }
+
+                // Non-retryable error or max retries exceeded
+                println!(
+                    "✗ Failed to upload batch {} after {} retries: {}",
+                    batch_num, retry_count, error_msg
+                );
+                return Err(e).context("Failed to upload to BigQuery");
+            }
+        }
+    }
+    })
+}
+
 pub async fn upload_to_bigquery<T: BigQueryInserter>(
     client: &T,
     config: &Config,
@@ -269,6 +495,71 @@ pub async fn upload_to_bigquery<T: BigQueryInserter>(
 
         // Use the new split-aware upload function
         let batch_uuids = upload_batch_with_split(client, config, chunk, i + 1, total_batches)
+            .await
+            .context("Failed to upload batch")?;
+
+        uploaded_uuids.extend(batch_uuids);
+
+        // Small delay between batches to avoid rate limiting
+        if i + 1 < total_batches {
+            sleep(Duration::from_millis(BATCH_DELAY_MS)).await;
+        }
+    }
+
+    println!(
+        "Successfully uploaded {} out of {} records",
+        uploaded_uuids.len(),
+        logs.len()
+    );
+
+    Ok(uploaded_uuids)
+}
+
+/// Upload logs to BigQuery using factory pattern (with connection resilience)
+pub async fn upload_to_bigquery_with_factory<F: BigQueryClientFactory>(
+    factory: &F,
+    config: &Config,
+    logs: Vec<SessionLogOutput>,
+    dry_run: bool,
+) -> Result<Vec<String>> {
+    if logs.is_empty() {
+        println!("No logs to upload");
+        return Ok(Vec::new());
+    }
+
+    println!("Preparing to upload {} records to BigQuery", logs.len());
+
+    if dry_run {
+        info!("DRY RUN MODE - Would upload {} records", logs.len());
+        for log in &logs {
+            info!(
+                "  - UUID: {} | Session: {} | Type: {}",
+                log.uuid, log.session_id, log.message_type
+            );
+        }
+        return Ok(logs.iter().map(|l| l.uuid.clone()).collect());
+    }
+
+    // Process in batches
+    let batch_size = config.upload_batch_size as usize;
+    let mut uploaded_uuids = Vec::new();
+    let total_batches = logs.len().div_ceil(batch_size);
+
+    println!(
+        "Processing {} batches of {} records each",
+        total_batches, batch_size
+    );
+
+    for (i, chunk) in logs.chunks(batch_size).enumerate() {
+        println!(
+            "Uploading batch {}/{} ({} records)...",
+            i + 1,
+            total_batches,
+            chunk.len()
+        );
+
+        // Use the resilient upload function with factory pattern
+        let batch_uuids = upload_batch_with_split_resilient(factory, config, chunk, i + 1, total_batches)
             .await
             .context("Failed to upload batch")?;
 
@@ -488,6 +779,7 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl BigQueryInserter for MockBigQueryClient {
         async fn insert(
             &self,
@@ -678,5 +970,193 @@ mod tests {
         let uuids = result.unwrap();
         assert_eq!(uuids.len(), 5);
         assert_eq!(mock.call_count(), 3); // 5 logs / 2 batch_size = 3 batches
+    }
+
+    // Tests for new error classification functions
+    #[test]
+    fn test_is_connection_error() {
+        // Test broken pipe variations
+        assert!(is_connection_error("Broken pipe"));
+        assert!(is_connection_error("broken pipe (os error 32)"));
+        assert!(is_connection_error("error sending request: Broken pipe"));
+
+        // Test connection reset
+        assert!(is_connection_error("Connection reset"));
+        assert!(is_connection_error("connection reset by peer"));
+        assert!(is_connection_error("Connection reset by peer"));
+
+        // Test connection refused
+        assert!(is_connection_error("Connection refused"));
+
+        // Test EOF
+        assert!(is_connection_error("EOF"));
+        assert!(is_connection_error("unexpected end of file"));
+
+        // Test non-connection errors
+        assert!(!is_connection_error("503 Service Unavailable"));
+        assert!(!is_connection_error("429 Too Many Requests"));
+        assert!(!is_connection_error("Table not found"));
+    }
+
+    #[test]
+    fn test_is_transient_error() {
+        // Test table not found
+        assert!(is_transient_error("Table not found"));
+        assert!(is_transient_error("Resource was deleted"));
+
+        // Test server errors
+        assert!(is_transient_error("503 Service Unavailable"));
+        assert!(is_transient_error("500 Internal Server Error"));
+
+        // Test rate limiting
+        assert!(is_transient_error("403 Quota exceeded"));
+        assert!(is_transient_error("429 Too Many Requests"));
+        assert!(is_transient_error("rate limit exceeded"));
+        assert!(is_transient_error("quota exceeded"));
+        assert!(is_transient_error("Quota limit reached"));
+
+        // Test timeout
+        assert!(is_transient_error("timeout"));
+        assert!(is_transient_error("Timeout waiting for response"));
+
+        // Test non-transient errors
+        assert!(!is_transient_error("Authentication failed"));
+        assert!(!is_transient_error("Invalid request"));
+        assert!(!is_transient_error("Broken pipe"));
+    }
+
+    #[test]
+    fn test_error_classification_disjoint() {
+        // Connection errors and transient errors should be disjoint sets
+        let connection_errors = vec![
+            "Broken pipe",
+            "Connection reset",
+            "Connection refused",
+            "EOF",
+        ];
+
+        let transient_errors = vec![
+            "503 Service Unavailable",
+            "429 Too Many Requests",
+            "Table not found",
+            "timeout",
+        ];
+
+        for err in &connection_errors {
+            assert!(
+                is_connection_error(err),
+                "{} should be a connection error",
+                err
+            );
+            assert!(
+                !is_transient_error(err),
+                "{} should not be a transient error",
+                err
+            );
+        }
+
+        for err in &transient_errors {
+            assert!(
+                is_transient_error(err),
+                "{} should be a transient error",
+                err
+            );
+            assert!(
+                !is_connection_error(err),
+                "{} should not be a connection error",
+                err
+            );
+        }
+    }
+
+    // Mock factory for testing connection recreation
+    pub struct MockClientFactory {
+        create_count: Arc<AtomicUsize>,
+        shared_call_count: Arc<AtomicUsize>, // Shared across all created clients
+        result: MockResult,
+    }
+
+    impl MockClientFactory {
+        pub fn new(result: MockResult) -> Self {
+            Self {
+                create_count: Arc::new(AtomicUsize::new(0)),
+                shared_call_count: Arc::new(AtomicUsize::new(0)),
+                result,
+            }
+        }
+
+        pub fn create_count(&self) -> usize {
+            self.create_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl BigQueryClientFactory for MockClientFactory {
+        async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>> {
+            self.create_count.fetch_add(1, Ordering::SeqCst);
+            // Create client with shared call count
+            let mut client = MockBigQueryClient::new(self.result.clone());
+            client.call_count = self.shared_call_count.clone();
+            Ok(Box::new(client))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upload_with_connection_error_recovery() {
+        // Factory that creates clients that fail with broken pipe once, then succeed
+        let factory = MockClientFactory::new(MockResult::FailThenSucceed {
+            fail_count: 1,
+            error: "Broken pipe (os error 32)".to_string(),
+        });
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result =
+            upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+        // Should have created 2 clients: initial + 1 recreation after connection error
+        assert_eq!(factory.create_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_upload_max_connection_resets() {
+        // Factory that always fails with broken pipe
+        let factory = MockClientFactory::new(MockResult::Failure(
+            "Broken pipe (os error 32)".to_string(),
+        ));
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result =
+            upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_err());
+        // Should have created MAX_CONNECTION_RESETS + 1 clients (initial + 3 resets)
+        assert_eq!(factory.create_count(), (MAX_CONNECTION_RESETS + 1) as usize);
+    }
+
+    #[tokio::test]
+    async fn test_upload_transient_error_no_recreation() {
+        // Factory that creates clients that fail with 503 once, then succeed
+        let factory = MockClientFactory::new(MockResult::FailThenSucceed {
+            fail_count: 1,
+            error: "503 Service Unavailable".to_string(),
+        });
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result =
+            upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        // For transient errors, should NOT recreate client
+        // Only 1 client created (initial), then retries with same client
+        assert_eq!(factory.create_count(), 1);
     }
 }

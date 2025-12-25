@@ -81,13 +81,13 @@ async fn main() -> Result<()> {
         state.total_uploaded
     );
 
-    // Create BigQuery client (skip if dry-run mode)
-    let client = if args.dry_run {
+    // Create BigQuery client factory (skip if dry-run mode)
+    let factory = if args.dry_run {
         None
     } else {
-        let c = auth::create_bigquery_client(&config.service_account_key_path).await?;
-        println!("✓ Authenticated with BigQuery using service account");
-        Some(c)
+        let f = uploader::RealClientFactory::new(config.service_account_key_path.clone());
+        println!("✓ Created BigQuery client factory");
+        Some(f)
     };
 
     // Determine log directory
@@ -148,12 +148,15 @@ async fn main() -> Result<()> {
         }
         all_logs.iter().map(|l| l.uuid.clone()).collect()
     } else {
-        let real_client = uploader::RealBigQueryClient::new(
-            client
+        uploader::upload_to_bigquery_with_factory(
+            factory
                 .as_ref()
-                .expect("Client should exist in non-dry-run mode"),
-        );
-        uploader::upload_to_bigquery(&real_client, &config, all_logs, false).await?
+                .expect("Factory should exist in non-dry-run mode"),
+            &config,
+            all_logs,
+            false,
+        )
+        .await?
     };
 
     if !args.dry_run && !uploaded_uuids.is_empty() {
