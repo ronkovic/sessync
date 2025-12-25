@@ -69,6 +69,15 @@ pub fn calculate_retry_delay(retry_count: u32) -> u64 {
     )
 }
 
+/// Convert error chain to string including all causes
+fn error_chain_to_string(e: &anyhow::Error) -> String {
+    let mut messages = Vec::new();
+    for cause in e.chain() {
+        messages.push(cause.to_string());
+    }
+    messages.join(" | ")
+}
+
 /// Check if an error message indicates a retryable error
 pub fn is_retryable_error(error_msg: &str) -> bool {
     error_msg.contains("not found")
@@ -147,7 +156,7 @@ fn upload_batch_with_split<'a, T: BigQueryInserter>(
                 }
             }
             Err(e) => {
-                let error_msg = e.to_string();
+                let error_msg = error_chain_to_string(&e);
 
                 // Check if request is too large - split and retry
                 if is_request_too_large_error(&error_msg) {
@@ -375,6 +384,24 @@ mod tests {
         assert!(is_retryable_error("timeout"));
         assert!(is_retryable_error("Timeout waiting for response"));
         assert!(is_retryable_error("connection reset by peer"));
+    }
+
+    #[test]
+    fn test_error_chain_to_string() {
+        use anyhow::Context;
+
+        // Create nested error
+        let inner_error = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe");
+        let error = anyhow::Error::from(inner_error)
+            .context("client error")
+            .context("BigQuery insert failed");
+
+        let error_msg = error_chain_to_string(&error);
+
+        // Should contain all parts of the chain
+        assert!(error_msg.contains("BigQuery insert failed"));
+        assert!(error_msg.contains("Broken pipe"));
+        assert!(is_retryable_error(&error_msg));
     }
 
     #[test]
