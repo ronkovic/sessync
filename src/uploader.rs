@@ -80,6 +80,14 @@ pub fn is_retryable_error(error_msg: &str) -> bool {
         || error_msg.contains("rate")
         || error_msg.contains("quota")
         || error_msg.contains("Quota")
+        // Network errors
+        || error_msg.contains("connection")
+        || error_msg.contains("Connection")
+        || error_msg.contains("Broken pipe")
+        || error_msg.contains("broken pipe")
+        || error_msg.contains("timeout")
+        || error_msg.contains("Timeout")
+        || error_msg.contains("reset")
 }
 
 /// Prepare rows for BigQuery insertion
@@ -297,6 +305,17 @@ mod tests {
         assert!(!is_retryable_error("Invalid request"));
         assert!(!is_retryable_error("Authentication failed"));
         assert!(!is_retryable_error("Bad request syntax"));
+    }
+
+    #[test]
+    fn test_is_retryable_error_network_errors() {
+        assert!(is_retryable_error("connection error"));
+        assert!(is_retryable_error("Connection refused"));
+        assert!(is_retryable_error("Broken pipe"));
+        assert!(is_retryable_error("broken pipe (os error 32)"));
+        assert!(is_retryable_error("timeout"));
+        assert!(is_retryable_error("Timeout waiting for response"));
+        assert!(is_retryable_error("connection reset by peer"));
     }
 
     #[test]
