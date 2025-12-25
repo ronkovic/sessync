@@ -46,8 +46,11 @@ curl -sSL .../setup.sh | bash -s -- -p /path/to/project -v v0.1.0
    - 開発者ID（デフォルト: ユーザー名）
    - メールアドレス（デフォルト: git config user.email）
    - サービスアカウントキーパス
+3. **サービスアカウントキー:**
+   - キーファイルのパスを入力（空白でスキップ）
+   - パス入力時は自動的にコピーされます
 
-セットアップ後、サービスアカウントキーを配置してください：
+セットアップスクリプトでキーファイルをスキップした場合は、後で手動で配置してください：
 
 ```bash
 cp /path/to/your-key.json .claude/sessync/service-account-key.json

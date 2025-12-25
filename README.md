@@ -41,21 +41,37 @@ iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.
    - データセット名 / テーブル名 / ロケーション
    - 開発者ID / メールアドレス
    - サービスアカウントキーパス
+3. **サービスアカウントキー**
+   - キーファイルのパス（空白でスキップ）
 
 ### 非対話モード
 
 ```bash
 # Linux/macOS - パス指定
-curl -sSL .../setup.sh | bash -s -- -p /path/to/project
+curl -sSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.sh | bash -s -- -p /path/to/project
 
 # Windows - パス指定
-.\setup.ps1 -ProjectDir C:\path\to\project
+iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex; .\setup.ps1 -ProjectDir C:\path\to\project
+```
+
+### ローカル開発・カスタマイズ用
+
+リポジトリをクローンしてから実行:
+
+```bash
+# リポジトリをクローン
+git clone git@github.com:ronkovic/sessync.git
+cd sessync
+
+# セットアップスクリプトを実行
+bash scripts/setup.sh
 ```
 
 ### セットアップスクリプトの処理内容
 
 - プラットフォームに応じたバイナリのダウンロード
 - BigQuery設定ファイルの対話式作成
+- サービスアカウントキーのコピー（対話式）
 - SessionEndフックの設定
 - `/save-session`コマンドの追加
 - `.gitignore`への機密ファイル追加
@@ -78,10 +94,14 @@ vi .claude/sessync/config.json
 
 ### サービスアカウントキーの配置
 
+**セットアップスクリプトでスキップした場合、または手動インストールの場合:**
+
 ```bash
 cp ~/Downloads/your-key.json .claude/sessync/service-account-key.json
 chmod 600 .claude/sessync/service-account-key.json
 ```
+
+**セットアップスクリプトでコピー済みの場合:** この手順はスキップできます。
 
 ### 動作確認
 

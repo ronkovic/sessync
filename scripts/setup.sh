@@ -354,6 +354,48 @@ setup_gitignore() {
   fi
 }
 
+# サービスアカウントキーのコピー（対話式）
+setup_service_account_key() {
+  local target_key_path=".claude/sessync/service-account-key.json"
+
+  if [ -f "$target_key_path" ]; then
+    info "Service account key already exists: $target_key_path"
+    return
+  fi
+
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${CYAN}  サービスアカウントキーの配置${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+
+  prompt "サービスアカウントキーのパスを入力してください"
+  echo -e "  ${YELLOW}(空白でEnter = 後で手動でコピー)${NC}"
+  echo ""
+  read -r -p "> " key_path
+
+  if [ -z "$key_path" ]; then
+    warn "スキップしました。後でキーファイルをコピーしてください:"
+    echo "  cp /path/to/key.json $PROJECT_DIR/$target_key_path"
+    return
+  fi
+
+  # チルダ展開
+  key_path="${key_path/#\~/$HOME}"
+
+  if [ ! -f "$key_path" ]; then
+    warn "ファイルが見つかりません: $key_path"
+    warn "後でキーファイルをコピーしてください:"
+    echo "  cp /path/to/key.json $PROJECT_DIR/$target_key_path"
+    return
+  fi
+
+  cp "$key_path" "$target_key_path"
+  chmod 600 "$target_key_path"
+  info "Copied: $target_key_path (permissions: 600)"
+  echo ""
+}
+
 main() {
   echo "========================================"
   echo "  sessync Setup Script"
@@ -386,17 +428,25 @@ main() {
   setup_settings_json
   setup_save_session
   setup_gitignore
+  setup_service_account_key
 
   echo ""
   echo -e "${GREEN}✅ sessync installed!${NC}"
   echo ""
   echo "Installed to: $PROJECT_DIR"
   echo ""
-  echo "Next steps:"
-  echo "  1. Edit $PROJECT_DIR/.claude/sessync/config.json with your BigQuery settings"
-  echo "  2. Add your service account key:"
-  echo "     cp /path/to/key.json $PROJECT_DIR/.claude/sessync/service-account-key.json"
-  echo "  3. Test: cd $PROJECT_DIR && ./.claude/sessync/sessync --dry-run"
+
+  if [ ! -f ".claude/sessync/service-account-key.json" ]; then
+    echo "Next steps:"
+    echo "  1. Add your service account key:"
+    echo "     cp /path/to/key.json $PROJECT_DIR/.claude/sessync/service-account-key.json"
+    echo "  2. (Optional) Edit $PROJECT_DIR/.claude/sessync/config.json if needed"
+    echo "  3. Test: cd $PROJECT_DIR && ./.claude/sessync/sessync --dry-run"
+  else
+    echo "Next steps:"
+    echo "  1. (Optional) Edit $PROJECT_DIR/.claude/sessync/config.json if needed"
+    echo "  2. Test: cd $PROJECT_DIR && ./.claude/sessync/sessync --dry-run"
+  fi
   echo ""
 }
 

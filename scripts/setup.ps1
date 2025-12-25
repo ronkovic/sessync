@@ -263,6 +263,55 @@ function Setup-Gitignore {
     }
 }
 
+# サービスアカウントキーのコピー（対話式）
+function Setup-ServiceAccountKey {
+    $targetKeyPath = ".claude\sessync\service-account-key.json"
+
+    if (Test-Path $targetKeyPath) {
+        Write-Info "Service account key already exists: $targetKeyPath"
+        return
+    }
+
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "  サービスアカウントキーの配置" -ForegroundColor Cyan
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host ""
+
+    Write-Prompt "サービスアカウントキーのパスを入力してください"
+    Write-Host "  (空白でEnter = 後で手動でコピー)" -ForegroundColor Yellow
+    Write-Host ""
+    $keyPath = Read-Host ">"
+
+    if ([string]::IsNullOrWhiteSpace($keyPath)) {
+        Write-Warn "スキップしました。後でキーファイルをコピーしてください:"
+        Write-Host "  Copy-Item C:\path\to\key.json $ProjectDir\$targetKeyPath"
+        return
+    }
+
+    # 環境変数展開
+    $keyPath = [Environment]::ExpandEnvironmentVariables($keyPath)
+
+    if (-not (Test-Path $keyPath -PathType Leaf)) {
+        Write-Warn "ファイルが見つかりません: $keyPath"
+        Write-Warn "後でキーファイルをコピーしてください:"
+        Write-Host "  Copy-Item C:\path\to\key.json $ProjectDir\$targetKeyPath"
+        return
+    }
+
+    Copy-Item $keyPath $targetKeyPath -Force
+    # Windowsでのファイル権限設定（所有者のみアクセス可能）
+    $acl = Get-Acl $targetKeyPath
+    $acl.SetAccessRuleProtection($true, $false)
+    $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($owner, "FullControl", "Allow")
+    $acl.SetAccessRule($rule)
+    Set-Acl $targetKeyPath $acl
+
+    Write-Info "Copied: $targetKeyPath (permissions: owner only)"
+    Write-Host ""
+}
+
 # メイン処理
 Write-Host "========================================"
 Write-Host "  sessync Setup Script (Windows)"
@@ -292,15 +341,23 @@ Setup-ConfigJson
 Setup-SettingsJson
 Setup-SaveSession
 Setup-Gitignore
+Setup-ServiceAccountKey
 
 Write-Host ""
 Write-Host "✅ sessync installed!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Installed to: $ProjectDir"
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "  1. Edit $ProjectDir\.claude\sessync\config.json with your BigQuery settings"
-Write-Host "  2. Add your service account key:"
-Write-Host "     Copy-Item C:\path\to\key.json $ProjectDir\.claude\sessync\service-account-key.json"
-Write-Host "  3. Test: cd $ProjectDir; .\.claude\sessync\sessync.exe --dry-run"
+
+if (-not (Test-Path ".claude\sessync\service-account-key.json")) {
+    Write-Host "Next steps:"
+    Write-Host "  1. Add your service account key:"
+    Write-Host "     Copy-Item C:\path\to\key.json $ProjectDir\.claude\sessync\service-account-key.json"
+    Write-Host "  2. (Optional) Edit $ProjectDir\.claude\sessync\config.json if needed"
+    Write-Host "  3. Test: cd $ProjectDir; .\.claude\sessync\sessync.exe --dry-run"
+} else {
+    Write-Host "Next steps:"
+    Write-Host "  1. (Optional) Edit $ProjectDir\.claude\sessync\config.json if needed"
+    Write-Host "  2. Test: cd $ProjectDir; .\.claude\sessync\sessync.exe --dry-run"
+}
 Write-Host ""

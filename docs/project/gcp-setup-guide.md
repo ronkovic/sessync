@@ -154,7 +154,7 @@ iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.
 - インストール先プロジェクトフォルダ
 - GCPプロジェクトID / データセット名 / テーブル名
 - 開発者ID / メールアドレス
-- サービスアカウントキーパス
+- サービスアカウントキーのパス（空白でスキップ可能）
 
 ### 5.2 手動設定（オプション）
 
@@ -195,12 +195,15 @@ iwr -useb https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.
 
 ### 6.1 サービスアカウントキーの配置
 
-セットアップスクリプト実行後、サービスアカウントキーを配置:
+セットアップスクリプトでは、キーファイルのパスを対話的に入力できます。
+スキップした場合や手動インストールの場合は、以下のコマンドで配置:
 
 ```bash
 cp ~/Downloads/YOUR-KEY.json .claude/sessync/service-account-key.json
 chmod 600 .claude/sessync/service-account-key.json
 ```
+
+**セットアップスクリプトでコピー済みの場合:** この手順はスキップできます。
 
 ### 6.2 Dry-runテスト（アップロードなし）
 ```bash
