@@ -90,6 +90,11 @@ pub fn is_retryable_error(error_msg: &str) -> bool {
         || error_msg.contains("reset")
 }
 
+/// Check if an error indicates the request was too large (413)
+pub fn is_request_too_large_error(error_msg: &str) -> bool {
+    error_msg.contains("413") || error_msg.contains("Request Entity Too Large")
+}
+
 /// Prepare rows for BigQuery insertion
 pub fn prepare_rows(logs: &[SessionLogOutput]) -> Vec<Row<SessionLogOutput>> {
     logs.iter()
@@ -98,6 +103,117 @@ pub fn prepare_rows(logs: &[SessionLogOutput]) -> Vec<Row<SessionLogOutput>> {
             json: log.clone(),
         })
         .collect()
+}
+
+/// Upload a batch with automatic splitting on 413 errors
+fn upload_batch_with_split<'a, T: BigQueryInserter>(
+    client: &'a T,
+    config: &'a Config,
+    chunk: &'a [SessionLogOutput],
+    batch_num: usize,
+    total_batches: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + 'a>> {
+    Box::pin(async move {
+    // Minimum batch size to avoid infinite splitting
+    const MIN_BATCH_SIZE: usize = 10;
+
+    let rows = prepare_rows(chunk);
+    let request = InsertAllRequest {
+        rows,
+        skip_invalid_rows: None,
+        ignore_unknown_values: None,
+        template_suffix: None,
+        trace_id: None,
+    };
+
+    // Retry logic with exponential backoff
+    let mut retry_count = 0;
+
+    loop {
+        match client
+            .insert(&config.project_id, &config.dataset, &config.table, &request)
+            .await
+        {
+            Ok(response) => {
+                if let Some(errors) = response.insert_errors {
+                    println!("⚠ Batch {} had errors:", batch_num);
+                    for error in &errors {
+                        println!("  Row {}: {:?}", error.index, error.errors);
+                    }
+                    return Ok(Vec::new());
+                } else {
+                    println!("✓ Batch {} uploaded successfully", batch_num);
+                    return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
+                }
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+
+                // Check if request is too large - split and retry
+                if is_request_too_large_error(&error_msg) {
+                    if chunk.len() <= MIN_BATCH_SIZE {
+                        println!(
+                            "✗ Batch {} is too large even at minimum size ({})",
+                            batch_num,
+                            chunk.len()
+                        );
+                        return Err(e).context("Batch too large even at minimum size");
+                    }
+
+                    let mid = chunk.len() / 2;
+                    println!(
+                        "⚠ Batch {} too large ({} records), splitting into {} and {}...",
+                        batch_num,
+                        chunk.len(),
+                        mid,
+                        chunk.len() - mid
+                    );
+
+                    // Split and upload both halves
+                    let mut uploaded = Vec::new();
+                    uploaded.extend(
+                        upload_batch_with_split(
+                            client,
+                            config,
+                            &chunk[..mid],
+                            batch_num,
+                            total_batches,
+                        )
+                        .await?,
+                    );
+                    uploaded.extend(
+                        upload_batch_with_split(
+                            client,
+                            config,
+                            &chunk[mid..],
+                            batch_num,
+                            total_batches,
+                        )
+                        .await?,
+                    );
+                    return Ok(uploaded);
+                }
+
+                // Regular retry logic for other errors
+                if is_retryable_error(&error_msg) && retry_count < MAX_RETRIES {
+                    retry_count += 1;
+                    let delay = calculate_retry_delay(retry_count);
+                    println!(
+                        "⚠ Batch {} failed (attempt {}), retrying in {}ms: {}",
+                        batch_num, retry_count, delay, error_msg
+                    );
+                    sleep(Duration::from_millis(delay)).await;
+                } else {
+                    println!(
+                        "✗ Failed to upload batch {} after {} retries: {}",
+                        batch_num, retry_count, error_msg
+                    );
+                    return Err(e).context("Failed to upload to BigQuery");
+                }
+            }
+        }
+    }
+    })
 }
 
 pub async fn upload_to_bigquery<T: BigQueryInserter>(
@@ -142,69 +258,12 @@ pub async fn upload_to_bigquery<T: BigQueryInserter>(
             chunk.len()
         );
 
-        let rows = prepare_rows(chunk);
+        // Use the new split-aware upload function
+        let batch_uuids = upload_batch_with_split(client, config, chunk, i + 1, total_batches)
+            .await
+            .context("Failed to upload batch")?;
 
-        let request = InsertAllRequest {
-            rows,
-            skip_invalid_rows: None,
-            ignore_unknown_values: None,
-            template_suffix: None,
-            trace_id: None,
-        };
-
-        // Retry logic with exponential backoff
-        let mut retry_count = 0;
-        let mut last_error = None;
-
-        loop {
-            match client
-                .insert(&config.project_id, &config.dataset, &config.table, &request)
-                .await
-            {
-                Ok(response) => {
-                    if let Some(errors) = response.insert_errors {
-                        println!("⚠ Batch {} had errors:", i + 1);
-                        for error in &errors {
-                            println!("  Row {}: {:?}", error.index, error.errors);
-                        }
-                        // Don't add to uploaded_uuids if there were errors
-                    } else {
-                        println!("✓ Batch {} uploaded successfully", i + 1);
-                        uploaded_uuids.extend(chunk.iter().map(|l| l.uuid.clone()));
-                    }
-                    break; // Success, exit retry loop
-                }
-                Err(e) => {
-                    let error_msg = e.to_string();
-
-                    if is_retryable_error(&error_msg) && retry_count < MAX_RETRIES {
-                        retry_count += 1;
-                        let delay = calculate_retry_delay(retry_count);
-                        println!(
-                            "⚠ Batch {} failed (attempt {}), retrying in {}ms: {}",
-                            i + 1,
-                            retry_count,
-                            delay,
-                            error_msg
-                        );
-                        sleep(Duration::from_millis(delay)).await;
-                    } else {
-                        last_error = Some(e);
-                        break; // Non-retryable error or max retries reached
-                    }
-                }
-            }
-        }
-
-        if let Some(e) = last_error {
-            println!(
-                "✗ Failed to upload batch {} after {} retries: {}",
-                i + 1,
-                retry_count,
-                e
-            );
-            return Err(e).context("Failed to upload to BigQuery");
-        }
+        uploaded_uuids.extend(batch_uuids);
 
         // Small delay between batches to avoid rate limiting
         if i + 1 < total_batches {
@@ -316,6 +375,17 @@ mod tests {
         assert!(is_retryable_error("timeout"));
         assert!(is_retryable_error("Timeout waiting for response"));
         assert!(is_retryable_error("connection reset by peer"));
+    }
+
+    #[test]
+    fn test_is_request_too_large_error() {
+        assert!(is_request_too_large_error("413 Request Entity Too Large"));
+        assert!(is_request_too_large_error(
+            "HTTP status client error (413 Request Entity Too Large)"
+        ));
+        assert!(is_request_too_large_error("error 413"));
+        assert!(!is_request_too_large_error("500 Internal Server Error"));
+        assert!(!is_request_too_large_error("Connection refused"));
     }
 
     #[test]
