@@ -79,7 +79,7 @@ select_project_dir() {
   prompt "sessyncをインストールするプロジェクトフォルダを入力してください"
   echo -e "  ${YELLOW}(空白でEnter = 現在のディレクトリ: $(pwd))${NC}"
   echo ""
-  read -r -p "> " input_dir
+  read -r -p "> " input_dir < /dev/tty
 
   if [ -z "$input_dir" ]; then
     PROJECT_DIR="$(pwd)"
@@ -91,7 +91,7 @@ select_project_dir() {
     if [ ! -d "$input_dir" ]; then
       echo ""
       prompt "ディレクトリが存在しません: $input_dir"
-      read -r -p "  作成しますか? [y/N] " create_dir
+      read -r -p "  作成しますか? [y/N] " create_dir < /dev/tty
       if [[ "$create_dir" =~ ^[Yy]$ ]]; then
         mkdir -p "$input_dir"
         info "Created directory: $input_dir"
@@ -181,34 +181,34 @@ setup_config_json() {
   local project_basename
   project_basename=$(basename "$PROJECT_DIR")
   prompt "プロジェクト名 (default: $project_basename)"
-  read -r -p "> " cfg_project_name
+  read -r -p "> " cfg_project_name < /dev/tty
   cfg_project_name="${cfg_project_name:-$project_basename}"
 
   # project_id
   prompt "GCPプロジェクトID (default: $cfg_project_name)"
-  read -r -p "> " cfg_project_id
+  read -r -p "> " cfg_project_id < /dev/tty
   cfg_project_id="${cfg_project_id:-$cfg_project_name}"
 
   # dataset
   prompt "BigQueryデータセット名 (default: claude_sessions)"
-  read -r -p "> " cfg_dataset
+  read -r -p "> " cfg_dataset < /dev/tty
   cfg_dataset="${cfg_dataset:-claude_sessions}"
 
   # table
   prompt "BigQueryテーブル名 (default: session_logs)"
-  read -r -p "> " cfg_table
+  read -r -p "> " cfg_table < /dev/tty
   cfg_table="${cfg_table:-session_logs}"
 
   # location
   prompt "BigQueryロケーション (default: US)"
-  read -r -p "> " cfg_location
+  read -r -p "> " cfg_location < /dev/tty
   cfg_location="${cfg_location:-US}"
 
   # developer_id
   local default_dev_id
   default_dev_id=$(whoami)
   prompt "開発者ID (default: $default_dev_id)"
-  read -r -p "> " cfg_developer_id
+  read -r -p "> " cfg_developer_id < /dev/tty
   cfg_developer_id="${cfg_developer_id:-$default_dev_id}"
 
   # user_email
@@ -221,12 +221,12 @@ setup_config_json() {
   else
     prompt "メールアドレス"
   fi
-  read -r -p "> " cfg_user_email
+  read -r -p "> " cfg_user_email < /dev/tty
   cfg_user_email="${cfg_user_email:-$default_email}"
 
   # service_account_key_path
   prompt "サービスアカウントキーパス (default: ./.claude/sessync/service-account-key.json)"
-  read -r -p "> " cfg_key_path
+  read -r -p "> " cfg_key_path < /dev/tty
   cfg_key_path="${cfg_key_path:-./.claude/sessync/service-account-key.json}"
 
   # config.json を生成
@@ -372,7 +372,7 @@ setup_service_account_key() {
   prompt "サービスアカウントキーのパスを入力してください"
   echo -e "  ${YELLOW}(空白でEnter = 後で手動でコピー)${NC}"
   echo ""
-  read -r -p "> " key_path
+  read -r -p "> " key_path < /dev/tty
 
   if [ -z "$key_path" ]; then
     warn "スキップしました。後でキーファイルをコピーしてください:"
