@@ -49,7 +49,7 @@ async fn test_workflow_execute_dry_run_success() {
     let config_path = create_test_config(temp_dir.path());
 
     // Create test log directory with JSONL files
-    let log_dir = create_test_log_dir(temp_dir.path());
+    let _log_dir = create_test_log_dir(temp_dir.path());
 
     // Create .claude/sessync directory for state file
     let state_dir = temp_dir.path().join(".claude/sessync");
