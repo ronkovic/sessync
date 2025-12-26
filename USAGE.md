@@ -215,8 +215,10 @@ your-project/
 
 ### Automatic Upload (SessionEnd Hook)
 
-Add to `.claude/settings.json`:
+セットアップスクリプトが `.claude/settings.json` を自動設定します。
+テンプレートは `examples/claude-settings.json.example` にあります。
 
+手動で設定する場合:
 ```json
 {
   "hooks": {
@@ -237,15 +239,52 @@ Add to `.claude/settings.json`:
 
 ### Manual Upload (Custom Command)
 
-Create `.claude/commands/save-session.md`:
+セットアップスクリプトが `.claude/commands/save-session.md` を自動設定します。
+テンプレートは `examples/claude-commands/save-session.md` にあります。
 
-```markdown
----
-description: Upload current session logs to BigQuery
-allowed-tools: Bash
----
-
-!`./.claude/sessync/sessync`
+手動で設定する場合:
+```bash
+mkdir -p .claude/commands
+cp examples/claude-commands/save-session.md .claude/commands/
 ```
 
 Then use `/save-session` within Claude Code to upload mid-session.
+
+## Development Workflow
+
+### Git Hooks with lefthook
+
+このプロジェクトでは [lefthook](https://github.com/evilmartians/lefthook) を使用して、コミット・プッシュ時に自動チェックを実行します。
+
+```bash
+# lefthookのインストール
+brew install lefthook  # macOS
+# または: go install github.com/evilmartians/lefthook@latest
+
+# Git hooksをインストール
+lefthook install
+```
+
+#### 自動実行されるチェック
+
+| タイミング | チェック内容 |
+|-----------|-------------|
+| **pre-commit** | `cargo fmt --check` + `cargo clippy` |
+| **pre-push** | fmt + clippy + test + coverage (閾値以上) |
+
+### Coverage Threshold
+
+カバレッジ閾値は `.coverage-threshold` ファイルで一元管理されています:
+
+```bash
+cat .coverage-threshold
+# 80
+```
+
+閾値を変更する場合は、このファイルのみを編集してください。
+lefthook (pre-push) と CI の両方で同じ閾値が適用されます。
+
+一時的に閾値を上書きする場合:
+```bash
+COVERAGE_THRESHOLD=70 git push
+```

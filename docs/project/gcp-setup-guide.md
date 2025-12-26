@@ -392,8 +392,9 @@ echo ".claude/sessync/upload-state.json" >> .gitignore
      }
    }
    ```
-2. **`/save-session`コマンド設定** - セッション途中でのBigQueryアップロード
-3. **Looker Studioダッシュボード** - データの可視化
+2. **`/save-session`コマンド設定** - セッション途中でのBigQueryアップロード（テンプレート: `examples/claude-commands/save-session.md`）
+3. **開発ワークフロー** - lefthookによるGit hooks自動チェック（`lefthook.yml`参照）
+4. **Looker Studioダッシュボード** - データの可視化
 
 ---
 

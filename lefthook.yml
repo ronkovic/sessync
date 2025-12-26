@@ -26,7 +26,10 @@ pre-push:
       run: cargo nextest run --all-features --workspace
       fail_text: "テストが失敗しました。修正してからプッシュしてください。"
     coverage:
-      run: cargo +nightly llvm-cov nextest --all-features --workspace --fail-under-lines 80
-      fail_text: "カバレッジが80%未満です。テストを追加してからプッシュしてください。"
+      run: |
+        THRESHOLD=${COVERAGE_THRESHOLD:-$(cat .coverage-threshold 2>/dev/null || echo 80)}
+        echo "Coverage threshold: ${THRESHOLD}%"
+        cargo +nightly llvm-cov nextest --all-features --workspace --fail-under-lines $THRESHOLD
+      fail_text: "カバレッジが閾値未満です（閾値は .coverage-threshold で設定）。テストを追加してください。"
       env:
         RUSTFLAGS: "--cfg coverage_nightly"

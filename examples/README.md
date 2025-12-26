@@ -51,4 +51,27 @@ curl -fsSL https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup
 irm https://raw.githubusercontent.com/ronkovic/sessync/main/scripts/setup.ps1 | iex
 ```
 
+セットアップスクリプトは以下を自動設定します:
+- `.claude/sessync/config.json` - BigQuery接続設定
+- `.claude/settings.json` - SessionEndフック
+- `.claude/commands/save-session.md` - カスタムコマンド
+
+## 開発ワークフロー
+
+このプロジェクトでは [lefthook](https://github.com/evilmartians/lefthook) を使用して、コミット・プッシュ時に自動チェックを実行します。
+
+```bash
+# lefthookのインストール
+brew install lefthook
+
+# Git hooksをインストール
+lefthook install
+```
+
+自動チェック内容は `lefthook.yml` で定義されています:
+- **pre-commit**: フォーマット + Clippy
+- **pre-push**: テスト + カバレッジ閾値チェック
+
+カバレッジ閾値は `.coverage-threshold` ファイルで一元管理されています。
+
 詳細は [README.md](../README.md) を参照してください。

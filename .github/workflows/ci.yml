@@ -86,15 +86,18 @@ jobs:
 
       - name: Check coverage threshold
         run: |
+          # Read threshold from .coverage-threshold file (default: 80)
+          THRESHOLD=$(cat .coverage-threshold 2>/dev/null || echo 80)
+          echo "📊 Coverage threshold: ${THRESHOLD}%"
           # Use nextest to generate coverage report (consistent with lcov generation)
           # Extract Lines Cover (column 10) from TOTAL row
           coverage=$(cargo +nightly llvm-cov nextest --all-features --workspace 2>&1 | tee /dev/stderr | grep "^TOTAL" | awk '{print $10}' | tr -d '%')
           echo "Coverage: ${coverage}%"
-          if (( $(echo "$coverage < 80.0" | bc -l) )); then
-            echo "❌ Coverage below 80% threshold"
+          if (( $(echo "$coverage < $THRESHOLD" | bc -l) )); then
+            echo "❌ Coverage below ${THRESHOLD}% threshold"
             exit 1
           fi
-          echo "✅ Coverage is ${coverage}% (above 80% threshold)"
+          echo "✅ Coverage is ${coverage}% (above ${THRESHOLD}% threshold)"
         env:
           RUSTFLAGS: "--cfg coverage_nightly"
 

@@ -611,7 +611,7 @@ GitHub Actions で以下の5つのジョブが実行されます。すべてパ�
 |--------|-------------|
 | **Lint** | フォーマット、Clippy、ドキュメントビルド |
 | **Test** | 全テスト（nextest + doctest） |
-| **Coverage** | Line Coverage 80%以上 |
+| **Coverage** | Line Coverage 閾値以上（`.coverage-threshold`で設定） |
 | **Security** | 脆弱性チェック、ライセンス違反チェック |
 | **Build** | リリースビルド（Linux, macOS, Windows） |
 
@@ -642,13 +642,22 @@ cargo test --doc --all-features --workspace
 
 #### 3. Coverage
 
-- **閾値**: Line Coverage **80%以上**
+- **閾値**: `.coverage-threshold` ファイルで一元管理（デフォルト: 80%）
 - 外部サービス依存コードは `#[cfg_attr(coverage_nightly, coverage(off))]` で除外可能
 
 ```bash
+# 現在の閾値を確認
+cat .coverage-threshold
+
 # カバレッジ計測 (nightly必須)
 RUSTFLAGS="--cfg coverage_nightly" cargo +nightly llvm-cov nextest --all-features --workspace
+
+# 閾値チェック付きで実行
+RUSTFLAGS="--cfg coverage_nightly" cargo +nightly llvm-cov nextest --all-features --workspace --fail-under-lines $(cat .coverage-threshold)
 ```
+
+**閾値変更方法**: `.coverage-threshold` ファイルの値を編集してください。
+lefthook (pre-push) と GitHub Actions CI の両方で同じ閾値が適用されます。
 
 #### 4. Security
 
@@ -706,7 +715,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 # 3. テスト
 cargo nextest run --all-features --workspace
 
-# 4. カバレッジ (80%以上を確認)
+# 4. カバレッジ (閾値以上を確認)
 RUSTFLAGS="--cfg coverage_nightly" cargo +nightly llvm-cov nextest --all-features --workspace
 
 # 5. セキュリティ
@@ -763,9 +772,9 @@ lefthook install
 | タイミング | チェック内容 | 推定時間 |
 |-----------|-------------|---------|
 | **pre-commit** | fmt + clippy | 5-15秒 |
-| **pre-push** | fmt + clippy + test + coverage (80%以上) | 1-2分 |
+| **pre-push** | fmt + clippy + test + coverage (閾値以上) | 1-2分 |
 
-**カバレッジ判定**: pre-push時に`cargo llvm-cov`でカバレッジを計測し、80%未満の場合はプッシュを拒否します。
+**カバレッジ判定**: pre-push時に`cargo llvm-cov`でカバレッジを計測し、`.coverage-threshold`で設定された閾値未満の場合はプッシュを拒否します。
 
 #### チェックをスキップする場合
 

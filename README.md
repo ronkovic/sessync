@@ -154,6 +154,33 @@ queries/
 
 ## 開発
 
+### Git Hooks (lefthook)
+
+このプロジェクトでは [lefthook](https://github.com/evilmartians/lefthook) を使用して、コミット・プッシュ時に自動チェックを実行します。
+
+```bash
+# lefthookのインストール
+brew install lefthook
+
+# Git hooksをインストール
+lefthook install
+```
+
+| タイミング | チェック内容 |
+|-----------|-------------|
+| **pre-commit** | フォーマット + Clippy |
+| **pre-push** | テスト + カバレッジ閾値チェック |
+
+### カバレッジ閾値
+
+カバレッジ閾値は `.coverage-threshold` ファイルで一元管理されています:
+
+```bash
+cat .coverage-threshold  # 現在の閾値を確認
+```
+
+閾値変更時はこのファイルのみ編集してください（lefthook と CI の両方で適用）。
+
 ### テスト
 
 ```bash
