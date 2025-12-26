@@ -5,18 +5,17 @@
 use anyhow::{Context, Result};
 use log::info;
 
-use chrono::Utc;
-use std::fs;
-use std::path::PathBuf;
-use uuid::Uuid;
-use walkdir::WalkDir;
+use std::sync::Arc;
 
 use crate::adapter::bigquery::batch_uploader::upload_to_bigquery_with_factory;
 use crate::adapter::bigquery::client::RealClientFactory;
-use crate::adapter::bigquery::models::{SessionLogInput, SessionLogOutput};
+use crate::adapter::bigquery::models::SessionLogOutput;
 use crate::adapter::config::Config;
+use crate::adapter::repositories::file_log_repository::FileLogRepository;
 use crate::adapter::repositories::json_state_repository::JsonStateRepository;
-use crate::domain::repositories::state_repository::{StateRepository, UploadState};
+use crate::application::use_cases::discover_logs::DiscoverLogsUseCase;
+use crate::application::use_cases::parse_logs::ParseLogsUseCase;
+use crate::domain::repositories::state_repository::StateRepository;
 
 use super::cli::Args;
 
@@ -38,12 +37,28 @@ pub fn get_all_projects_log_dir(home: &str) -> String {
 }
 
 /// Session Upload Workflow
-pub struct SessionUploadWorkflow;
+pub struct SessionUploadWorkflow {
+    discover_use_case: Arc<DiscoverLogsUseCase<FileLogRepository>>,
+    parse_use_case: Arc<ParseLogsUseCase<FileLogRepository, JsonStateRepository>>,
+    state_repository: Arc<JsonStateRepository>,
+}
 
 impl SessionUploadWorkflow {
     /// Create a new workflow instance
     pub fn new() -> Self {
-        Self
+        // Repository implementations
+        let log_repo = Arc::new(FileLogRepository::new());
+        let state_repo = Arc::new(JsonStateRepository);
+
+        // Use Cases construction
+        let discover_use_case = Arc::new(DiscoverLogsUseCase::new(log_repo.clone()));
+        let parse_use_case = Arc::new(ParseLogsUseCase::new(log_repo, state_repo.clone()));
+
+        Self {
+            discover_use_case,
+            parse_use_case,
+            state_repository: state_repo,
+        }
     }
 
     /// Execute the upload workflow
@@ -66,8 +81,7 @@ impl SessionUploadWorkflow {
         // Load upload state
         // State file is project-local for multi-team support
         let state_path = "./.claude/sessync/upload-state.json".to_string();
-        let state_repo = JsonStateRepository::new();
-        let mut state = state_repo.load(&state_path).await?;
+        let mut state = self.state_repository.load(&state_path).await?;
         println!(
             "✓ Loaded upload state: {} records previously uploaded",
             state.total_uploaded
@@ -106,7 +120,8 @@ impl SessionUploadWorkflow {
             project_dir
         };
 
-        let log_files = discover_log_files(&log_dir)?;
+        // Discover log files using Use Case
+        let log_files = self.discover_use_case.execute(&log_dir).await?;
         println!("✓ Found {} log files in {}", log_files.len(), log_dir);
 
         if log_files.is_empty() {
@@ -114,14 +129,67 @@ impl SessionUploadWorkflow {
             return Ok(());
         }
 
-        // Parse and collect all logs
-        let mut all_logs = Vec::new();
-        for log_file in &log_files {
-            let parsed = parse_log_file(log_file, &config, &state)?;
-            all_logs.extend(parsed);
-        }
+        // Parse logs using Use Case
+        // Create UploadConfig from Config
+        let upload_config = crate::application::dto::upload_config::UploadConfig::new(
+            config.project_id.clone(),
+            config.dataset.clone(),
+            config.table.clone(),
+            config.location.clone(),
+            config.upload_batch_size as usize,
+            config.enable_deduplication,
+            config.developer_id.clone(),
+            config.user_email.clone(),
+            config.project_name.clone(),
+        );
 
-        println!("✓ Parsed {} records total", all_logs.len());
+        let batch_id = uuid::Uuid::new_v4().to_string();
+        let domain_logs = self
+            .parse_use_case
+            .execute(&log_files, &upload_config, &state_path, &batch_id)
+            .await?;
+
+        println!("✓ Parsed {} records total", domain_logs.len());
+
+        // Convert SessionLog (domain) to SessionLogOutput (BigQuery-specific)
+        let hostname = hostname::get()
+            .context("Failed to get hostname")?
+            .to_string_lossy()
+            .to_string();
+        let uploaded_at = chrono::Utc::now();
+
+        let all_logs: Vec<SessionLogOutput> = domain_logs
+            .into_iter()
+            .map(|log| SessionLogOutput {
+                uuid: log.uuid,
+                timestamp: log.timestamp,
+                session_id: log.session_id,
+                agent_id: log.agent_id,
+                is_sidechain: log.is_sidechain,
+                parent_uuid: log.parent_uuid,
+                user_type: log.user_type,
+                message_type: log.message_type,
+                slug: log.slug,
+                request_id: log.request_id,
+                cwd: log.cwd,
+                git_branch: log.git_branch,
+                version: log.version,
+                message: log.message,
+                tool_use_result: log.tool_use_result,
+                developer_id: log.metadata.developer_id,
+                hostname: hostname.clone(),
+                user_email: log.metadata.user_email,
+                project_name: log.metadata.project_name,
+                upload_batch_id: log.metadata.upload_batch_id,
+                source_file: log.metadata.source_file,
+                uploaded_at,
+            })
+            .collect();
+
+        println!(
+            "✓ Converted {} domain logs to BigQuery format",
+            all_logs.len()
+        );
 
         if all_logs.is_empty() {
             println!("No new records to upload. Exiting.");
@@ -153,11 +221,11 @@ impl SessionUploadWorkflow {
 
         if !args.dry_run && !uploaded_uuids.is_empty() {
             // Update and save state
-            let batch_id = uuid::Uuid::new_v4().to_string();
+            let batch_id_for_state = uuid::Uuid::new_v4().to_string();
             let timestamp = chrono::Utc::now().to_rfc3339();
-            state.add_uploaded(uploaded_uuids.clone(), batch_id, timestamp);
+            state.add_uploaded(uploaded_uuids.clone(), batch_id_for_state, timestamp);
             state.total_uploaded += uploaded_uuids.len() as u64;
-            state_repo.save(&state_path, &state).await?;
+            self.state_repository.save(&state_path, &state).await?;
             println!(
                 "✓ Updated upload state: {} total records uploaded",
                 state.total_uploaded
@@ -174,133 +242,6 @@ impl Default for SessionUploadWorkflow {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// ============================================================================
-// Workflow-specific helper functions
-// ============================================================================
-// These functions are specific to the BigQuery upload workflow and handle
-// the transformation from raw log files to BigQuery-specific SessionLogOutput.
-// They combine multiple Adapter layer components (file I/O, models, config)
-// which is appropriate for the Driver layer in Clean Architecture.
-//
-// Note: Application layer UseCases (DiscoverLogsUseCase, ParseLogsUseCase)
-// exist for domain-level operations that return SessionLog entities.
-// These workflow helpers are specialized for BigQuery upload requirements.
-// ============================================================================
-
-/// Discover log files in a directory (workflow-specific implementation)
-fn discover_log_files(log_dir: &str) -> Result<Vec<PathBuf>> {
-    let expanded_path = shellexpand::tilde(log_dir);
-    let log_dir = PathBuf::from(expanded_path.as_ref());
-
-    if !log_dir.exists() {
-        log::warn!("Log directory does not exist: {}", log_dir.display());
-        return Ok(Vec::new());
-    }
-
-    let mut log_files = Vec::new();
-
-    for entry in WalkDir::new(&log_dir)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-            log_files.push(path.to_path_buf());
-        }
-    }
-
-    info!(
-        "Found {} log files in {}",
-        log_files.len(),
-        log_dir.display()
-    );
-
-    Ok(log_files)
-}
-
-/// Parse a log file and add BigQuery-specific metadata
-///
-/// This function transforms raw SessionLogInput to BigQuery-specific SessionLogOutput
-/// by adding upload metadata (batch_id, hostname, uploaded_at, etc.)
-fn parse_log_file(
-    file_path: &PathBuf,
-    config: &Config,
-    state: &UploadState,
-) -> Result<Vec<SessionLogOutput>> {
-    let content = fs::read_to_string(file_path)
-        .context(format!("Failed to read log file: {}", file_path.display()))?;
-
-    let hostname = hostname::get()
-        .context("Failed to get hostname")?
-        .to_string_lossy()
-        .to_string();
-
-    let batch_id = Uuid::new_v4().to_string();
-    let uploaded_at = Utc::now();
-
-    let mut parsed_logs = Vec::new();
-
-    for (line_num, line) in content.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        match serde_json::from_str::<SessionLogInput>(line) {
-            Ok(input) => {
-                // Skip if already uploaded and deduplication is enabled
-                if config.enable_deduplication && state.is_uploaded(&input.uuid) {
-                    continue;
-                }
-
-                let output = SessionLogOutput {
-                    uuid: input.uuid,
-                    timestamp: input.timestamp,
-                    session_id: input.session_id,
-                    agent_id: input.agent_id,
-                    is_sidechain: input.is_sidechain,
-                    parent_uuid: input.parent_uuid,
-                    user_type: input.user_type,
-                    message_type: input.message_type,
-                    slug: input.slug,
-                    request_id: input.request_id,
-                    cwd: input.cwd,
-                    git_branch: input.git_branch,
-                    version: input.version,
-                    message: input.message.clone(),
-                    tool_use_result: input.tool_use_result.clone(),
-                    developer_id: config.developer_id.clone(),
-                    hostname: hostname.clone(),
-                    user_email: config.user_email.clone(),
-                    project_name: config.project_name.clone(),
-                    upload_batch_id: batch_id.clone(),
-                    source_file: file_path.to_string_lossy().to_string(),
-                    uploaded_at,
-                };
-
-                parsed_logs.push(output);
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to parse line {} in {}: {}",
-                    line_num + 1,
-                    file_path.display(),
-                    e
-                );
-            }
-        }
-    }
-
-    info!(
-        "Parsed {} records from {} (skipped {} duplicates)",
-        parsed_logs.len(),
-        file_path.display(),
-        content.lines().count() - parsed_logs.len()
-    );
-
-    Ok(parsed_logs)
 }
 
 #[cfg(test)]
