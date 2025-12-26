@@ -1,11 +1,11 @@
-# BigQuery Uploader - Usage Guide
+# sessync 使用ガイド
 
-## Prerequisites
+## 前提条件
 
-1. **GCP Service Account** - With BigQuery permissions
-2. **Service Account Key** - JSON key file for authentication
+1. **GCP サービスアカウント** - BigQuery権限が必要
+2. **サービスアカウントキー** - 認証用JSONキーファイル
 
-## Quick Setup (Recommended)
+## クイックセットアップ（推奨）
 
 対話式セットアップスクリプトを使用：
 
@@ -59,26 +59,26 @@ chmod 600 .claude/sessync/service-account-key.json
 
 ---
 
-## Manual Setup
+## 手動セットアップ
 
 手動でセットアップする場合：
 
-### 1. Install Rust
+### 1. Rustのインストール
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### 2. Configure BigQuery
+### 2. BigQuery設定
 
-Copy the example config and customize it:
+設定ファイルの例をコピーしてカスタマイズ：
 
 ```bash
 mkdir -p .claude/sessync
 cp examples/config.json.example .claude/sessync/config.json
 ```
 
-Edit `.claude/sessync/config.json` with your settings:
+`.claude/sessync/config.json` を編集：
 
 ```json
 {
@@ -96,18 +96,18 @@ Edit `.claude/sessync/config.json` with your settings:
 }
 ```
 
-### 3. Add Service Account Key
+### 3. サービスアカウントキーの配置
 
-Place your GCP service account JSON key in the project directory:
+GCPサービスアカウントのJSONキーをプロジェクトディレクトリに配置：
 
 ```bash
 cp /path/to/your-service-account-key.json ./.claude/sessync/service-account-key.json
 chmod 600 ./.claude/sessync/service-account-key.json
 ```
 
-**Note**: Service account key is project-local for multi-team support (different projects can use different BigQuery destinations).
+**注意**: サービスアカウントキーはプロジェクトローカルです（マルチチーム対応：プロジェクトごとに異なるBigQueryへアップロード可能）。
 
-### 4. Build and Deploy
+### 4. ビルドとデプロイ
 
 ```bash
 cargo build --release
@@ -115,105 +115,105 @@ cp ./target/release/sessync ./.claude/sessync/sessync
 chmod +x ./.claude/sessync/sessync
 ```
 
-## Usage
+## 使い方
 
-### Dry Run (Test without uploading)
+### ドライラン（アップロードなしでテスト）
 
 ```bash
 ./.claude/sessync/sessync --dry-run
 ```
 
-### Manual Upload (Current Project Only)
+### 手動アップロード（現在のプロジェクトのみ）
 
 ```bash
 ./.claude/sessync/sessync
 ```
 
-### Upload All Projects
+### 全プロジェクトをアップロード
 
 ```bash
 ./.claude/sessync/sessync --all-projects
 ```
 
-### With Custom Config Path
+### カスタム設定ファイルパス指定
 
 ```bash
 ./.claude/sessync/sessync --config /path/to/config.json
 ```
 
-### From Claude Code
+### Claude Code から実行
 
-Use the `/save-session` command within Claude Code to upload the current session to BigQuery.
+Claude Code内で `/save-session` コマンドを使用して、現在のセッションをBigQueryにアップロードできます。
 
-## Features
+## 機能
 
-- **Project Isolation**: Each project has its own config, service account key, and upload state
-- **Multi-Team Support**: Different projects can upload to different BigQuery destinations
-- **Deduplication**: Tracks uploaded UUIDs per-project to prevent duplicates
-- **Batch Upload**: Configurable batch size for efficient uploads
-- **Service Account Auth**: Secure authentication using GCP service accounts
-- **Team Collaboration**: Adds developer_id, hostname, user_email metadata
-- **Incremental**: Only uploads new records since last run
-- **Dry Run**: Test mode to preview uploads without sending data
-- **Automatic Upload**: SessionEnd hook for automatic uploads
+- **プロジェクト分離**: 各プロジェクトに独自の設定、サービスアカウントキー、アップロード状態
+- **マルチチーム対応**: プロジェクトごとに異なるBigQueryへアップロード可能
+- **重複排除**: プロジェクトごとにアップロード済みUUIDを追跡
+- **バッチアップロード**: 設定可能なバッチサイズで効率的にアップロード
+- **サービスアカウント認証**: GCPサービスアカウントによるセキュアな認証
+- **チームコラボレーション**: developer_id, hostname, user_email メタデータを追加
+- **増分アップロード**: 前回実行以降の新しいレコードのみをアップロード
+- **ドライラン**: データを送信せずにアップロードをプレビュー
+- **自動アップロード**: SessionEndフックによる自動実行
 
-## Log File Location
+## ログファイルの場所
 
-Claude Code stores session logs in:
+Claude Codeはセッションログを以下に保存します：
 
 ```
 ~/.claude/projects/{project-name}/
 ```
 
-Where `{project-name}` is the working directory path with `/` replaced by `-`.
+`{project-name}` は作業ディレクトリパスの `/` を `-` に置換したものです。
 
-By default, the uploader scans the current project's log directory. Use `--all-projects` to scan all projects.
+デフォルトでは現在のプロジェクトのログディレクトリをスキャンします。全プロジェクトをスキャンするには `--all-projects` を使用。
 
-## Upload State
+## アップロード状態
 
-Upload state (deduplication tracking) is stored per-project at:
+アップロード状態（重複排除追跡）はプロジェクトごとに保存されます：
 
 ```
 ./.claude/sessync/upload-state.json
 ```
 
-This file tracks which UUIDs have been uploaded to prevent duplicates. Each project has its own state file to support uploading to different BigQuery destinations.
+このファイルはアップロード済みUUIDを追跡し、重複を防ぎます。各プロジェクトは独自の状態ファイルを持ち、異なるBigQueryへのアップロードをサポートします。
 
-## Project Structure
+## プロジェクト構成
 
 ```
 your-project/
 └── .claude/
     └── sessync/
-        ├── config.json              ← BigQuery settings (per-project)
-        ├── service-account-key.json ← GCP credentials (per-project)
-        ├── upload-state.json        ← Dedup state (auto-generated)
-        └── sessync                  ← Binary
+        ├── config.json              ← BigQuery設定（プロジェクト単位）
+        ├── service-account-key.json ← GCP認証情報（プロジェクト単位）
+        ├── upload-state.json        ← 重複排除状態（自動生成）
+        └── sessync                  ← 実行バイナリ
 ```
 
-## Troubleshooting
+## トラブルシューティング
 
 ### "Failed to authenticate with service account"
 
-- Verify the service account key path is correct
-- Ensure the key file has proper permissions (600)
-- Check that the service account has BigQuery Data Editor role
+- サービスアカウントキーのパスが正しいか確認
+- キーファイルの権限が適切か確認（600）
+- サービスアカウントにBigQuery データ編集者ロールがあるか確認
 
 ### "No log files to process"
 
-- Verify Claude Code session logs are being created
-- Check that logs exist at `~/.claude/projects/{project-name}/`
-- Ensure you're running from the correct project directory
+- Claude Codeのセッションログが作成されているか確認
+- `~/.claude/projects/{project-name}/` にログが存在するか確認
+- 正しいプロジェクトディレクトリから実行しているか確認
 
 ### "Failed to upload to BigQuery"
 
-- Verify the dataset and table exist in BigQuery
-- Check that the service account has insert permissions
-- Ensure the table schema matches the SessionLogOutput structure
+- BigQueryにデータセットとテーブルが存在するか確認
+- サービスアカウントに挿入権限があるか確認
+- テーブルスキーマがSessionLogOutput構造と一致しているか確認
 
-## Integration with Claude Code
+## Claude Code との統合
 
-### Automatic Upload (SessionEnd Hook)
+### 自動アップロード（SessionEndフック）
 
 セットアップスクリプトが `.claude/settings.json` を自動設定します。
 テンプレートは `examples/claude-settings.json.example` にあります。
@@ -237,7 +237,7 @@ your-project/
 }
 ```
 
-### Manual Upload (Custom Command)
+### 手動アップロード（カスタムコマンド）
 
 セットアップスクリプトが `.claude/commands/save-session.md` を自動設定します。
 テンプレートは `examples/claude-commands/save-session.md` にあります。
@@ -248,11 +248,11 @@ mkdir -p .claude/commands
 cp examples/claude-commands/save-session.md .claude/commands/
 ```
 
-Then use `/save-session` within Claude Code to upload mid-session.
+Claude Code内で `/save-session` を使用してセッション途中でアップロードできます。
 
-## Development Workflow
+## 開発ワークフロー
 
-### Git Hooks with lefthook
+### lefthookによるGit Hooks
 
 このプロジェクトでは [lefthook](https://github.com/evilmartians/lefthook) を使用して、コミット・プッシュ時に自動チェックを実行します。
 
@@ -270,9 +270,9 @@ lefthook install
 | タイミング | チェック内容 |
 |-----------|-------------|
 | **pre-commit** | `cargo fmt --check` + `cargo clippy` |
-| **pre-push** | fmt + clippy + test + coverage (閾値以上) |
+| **pre-push** | fmt + clippy + test + coverage（閾値以上） |
 
-### Coverage Threshold
+### カバレッジ閾値
 
 カバレッジ閾値は `.coverage-threshold` ファイルで一元管理されています:
 
