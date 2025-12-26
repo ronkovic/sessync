@@ -1,0 +1,27 @@
+# Lefthook - Git Hooks Manager
+# https://github.com/evilmartians/lefthook
+
+# pre-commit: コミット時のチェック（高速）
+pre-commit:
+  parallel: true
+  commands:
+    fmt-check:
+      run: cargo fmt --all -- --check
+      fail_text: "フォーマットエラー。'cargo fmt --all' を実行してください。"
+    clippy:
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      fail_text: "Clippy警告があります。修正してからコミットしてください。"
+
+# pre-push: プッシュ時のチェック（テスト含む）
+pre-push:
+  parallel: false
+  commands:
+    fmt-check:
+      run: cargo fmt --all -- --check
+      fail_text: "フォーマットエラー。'cargo fmt --all' を実行してください。"
+    clippy:
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      fail_text: "Clippy警告があります。修正してからプッシュしてください。"
+    test:
+      run: cargo nextest run --all-features --workspace
+      fail_text: "テストが失敗しました。修正してからプッシュしてください。"

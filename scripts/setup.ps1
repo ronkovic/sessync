@@ -230,7 +230,7 @@ function Setup-SettingsJson {
 
 # save-session.md (常に上書き)
 function Setup-SaveSession {
-    Invoke-WebRequest "https://raw.githubusercontent.com/$Repo/main/.claude/commands/save-session.md" `
+    Invoke-WebRequest "https://raw.githubusercontent.com/$Repo/main/examples/claude-commands/save-session.md" `
         -OutFile ".claude\commands\save-session.md" -UseBasicParsing
     Write-Info "Updated: .claude\commands\save-session.md"
 }

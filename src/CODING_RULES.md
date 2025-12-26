@@ -15,6 +15,7 @@
 7. [その他のベストプラクティス](#その他のベストプラクティス)
 8. [CI ルール](#ci-ルール)
 9. [ローカル CI 確認](#ローカル-ci-確認)
+10. [Git Hooks（自動チェック）](#git-hooks自動チェック)
 
 ---
 
@@ -734,6 +735,46 @@ cargo install cargo-deny
 # Rust nightly (カバレッジ計測用)
 rustup install nightly
 rustup component add llvm-tools-preview --toolchain nightly
+
+# lefthook (Git hooks)
+brew install lefthook
+```
+
+---
+
+## Git Hooks（自動チェック）
+
+### lefthookによる自動チェック
+
+このプロジェクトでは [lefthook](https://github.com/evilmartians/lefthook) を使用して、コミット・プッシュ時に自動でチェックを実行します。
+
+#### セットアップ
+
+```bash
+# lefthookのインストール（未インストールの場合）
+brew install lefthook
+
+# Git hooksのインストール
+lefthook install
+```
+
+#### 自動実行されるチェック
+
+| タイミング | チェック内容 | 推定時間 |
+|-----------|-------------|---------|
+| **pre-commit** | fmt + clippy | 5-15秒 |
+| **pre-push** | fmt + clippy + test | 30-60秒 |
+
+#### チェックをスキップする場合
+
+緊急時のみ使用（非推奨）：
+
+```bash
+# pre-commitをスキップ
+git commit --no-verify -m "message"
+
+# pre-pushをスキップ
+git push --no-verify
 ```
 
 ---

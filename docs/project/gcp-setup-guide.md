@@ -374,7 +374,7 @@ echo ".claude/sessync/upload-state.json" >> .gitignore
 
 セットアップ完了後は以下を検討:
 
-1. **SessionEndフック設定** - `.claude/settings.json` でセッション終了時の自動アップロードを設定
+1. **SessionEndフック設定** - セットアップスクリプトが `.claude/settings.json` を自動設定（テンプレート: `examples/claude-settings.json.example`）
    ```json
    {
      "hooks": {

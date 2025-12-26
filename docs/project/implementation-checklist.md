@@ -250,7 +250,8 @@ BigQuery へのログアップロード機能の基本実装。
   - `.claude/settings.json` で Rust バイナリを直接呼び出し
   - シェルスクリプト中間レイヤー廃止（122行削減）
   - `/save-session` カスタムコマンドで途中アップロード対応
-- **ファイル**: `.claude/settings.json`, `.claude/commands/save-session.md`
+- **設定方法**: セットアップスクリプト (`scripts/setup.sh`) が自動で設定
+- **テンプレート**: `examples/claude-settings.json.example`, `examples/claude-commands/save-session.md`
 - **完了日**: 2025-12-25
 
 ### 3.3 運用機能 ⬜ 未実装

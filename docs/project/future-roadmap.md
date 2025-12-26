@@ -62,7 +62,8 @@
 
 #### ✅ SessionEnd フック完成（シンプル化）
 - **目標**: セッション終了時の自動アップロード
-- **実装**: `.claude/settings.json` でRustバイナリ直接呼び出し
+- **実装**: セットアップスクリプトが `.claude/settings.json` を自動設定
+- **テンプレート**: `examples/claude-settings.json.example`
   ```json
   {
     "hooks": {

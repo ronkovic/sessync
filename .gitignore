@@ -29,6 +29,13 @@ lcov.info
 # Claude Code
 .claude/session-logs/
 .claude/plans/
+.claude/settings.json
+.claude/settings.local.json
+.claude/commands/
+
+# IDE (user-specific)
+.serena/project.yml
+.vscode/
 
 # MCP related (auto-generated / user-specific)
 .kiri/

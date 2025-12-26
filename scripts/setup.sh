@@ -323,7 +323,7 @@ PYTHON_EOF
 
 # save-session.md (常に上書き)
 setup_save_session() {
-  curl -sfL "https://raw.githubusercontent.com/$REPO/main/.claude/commands/save-session.md" \
+  curl -sfL "https://raw.githubusercontent.com/$REPO/main/examples/claude-commands/save-session.md" \
     -o .claude/commands/save-session.md
   info "Updated: .claude/commands/save-session.md"
 }

@@ -123,7 +123,8 @@ chmod 600 .claude/sessync/service-account-key.json
 
 ### 自動アップロード（SessionEnd）
 
-`.claude/settings.json` で設定済み。セッション終了時に自動実行されます。
+セットアップスクリプトにより `.claude/settings.json` が自動設定されます。
+セッション終了時に自動実行されます。
 
 ### 手動アップロード
 
