@@ -2,6 +2,9 @@
 //!
 //! Claude Codeのセッションログを BigQuery にアップロード
 
+// TODO: Driver層を新しいクリーンアーキテクチャのUse Caseに移行する
+#![allow(dead_code)]
+
 use anyhow::Result;
 use clap::Parser;
 

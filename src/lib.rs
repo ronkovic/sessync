@@ -11,6 +11,10 @@
 //!
 //! 詳細は `ARCHITECTURE.md` および `CLEAN_ARCHITECTURE.md` を参照してください。
 
+// TODO: Driver層を新しいクリーンアーキテクチャのUse Caseに移行する
+// 現在はAdapter層のコードを直接使用しているため、一時的にdead_code警告を抑制
+#![allow(dead_code)]
+
 // Domain層（純粋なビジネスロジック）
 pub mod domain;
 

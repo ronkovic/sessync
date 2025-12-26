@@ -242,6 +242,7 @@ mod tests {
 
     #[test]
     fn test_error_chain_to_string() {
+        #[allow(unused_imports)]
         use anyhow::Context;
 
         // Create nested error
