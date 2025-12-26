@@ -38,14 +38,15 @@ pub fn get_all_projects_log_dir(home: &str) -> String {
 
 /// Session Upload Workflow
 pub struct SessionUploadWorkflow {
+    config: Config,
     discover_use_case: Arc<DiscoverLogsUseCase<FileLogRepository>>,
     parse_use_case: Arc<ParseLogsUseCase<FileLogRepository, JsonStateRepository>>,
     state_repository: Arc<JsonStateRepository>,
 }
 
 impl SessionUploadWorkflow {
-    /// Create a new workflow instance
-    pub fn new() -> Self {
+    /// Create a new workflow instance with dependency injection
+    pub fn new(config: Config) -> Self {
         // Repository implementations
         let log_repo = Arc::new(FileLogRepository::new());
         let state_repo = Arc::new(JsonStateRepository);
@@ -55,6 +56,7 @@ impl SessionUploadWorkflow {
         let parse_use_case = Arc::new(ParseLogsUseCase::new(log_repo, state_repo.clone()));
 
         Self {
+            config,
             discover_use_case,
             parse_use_case,
             state_repository: state_repo,
@@ -64,18 +66,16 @@ impl SessionUploadWorkflow {
     /// Execute the upload workflow
     pub async fn execute(&self, args: Args) -> Result<()> {
         info!("Starting BigQuery uploader...");
-        info!("Config: {}", args.config);
         info!("Dry run: {}", args.dry_run);
 
-        // Load configuration
-        let config = Config::load(&args.config)?;
-        println!("✓ Loaded configuration from: {}", args.config);
-        println!("  Project: {}", config.project_id);
-        println!("  Dataset: {}", config.dataset);
-        println!("  Table: {}", config.table);
+        // Use injected configuration
+        println!("✓ Using configuration:");
+        println!("  Project: {}", self.config.project_id);
+        println!("  Dataset: {}", self.config.dataset);
+        println!("  Table: {}", self.config.table);
         println!(
             "  Developer: {} ({})",
-            config.developer_id, config.user_email
+            self.config.developer_id, self.config.user_email
         );
 
         // Load upload state
@@ -91,7 +91,7 @@ impl SessionUploadWorkflow {
         let factory = if args.dry_run {
             None
         } else {
-            let f = RealClientFactory::new(config.service_account_key_path.clone());
+            let f = RealClientFactory::new(self.config.service_account_key_path.clone());
             println!("✓ Created BigQuery client factory");
             Some(f)
         };
@@ -132,15 +132,15 @@ impl SessionUploadWorkflow {
         // Parse logs using Use Case
         // Create UploadConfig from Config
         let upload_config = crate::application::dto::upload_config::UploadConfig::new(
-            config.project_id.clone(),
-            config.dataset.clone(),
-            config.table.clone(),
-            config.location.clone(),
-            config.upload_batch_size as usize,
-            config.enable_deduplication,
-            config.developer_id.clone(),
-            config.user_email.clone(),
-            config.project_name.clone(),
+            self.config.project_id.clone(),
+            self.config.dataset.clone(),
+            self.config.table.clone(),
+            self.config.location.clone(),
+            self.config.upload_batch_size as usize,
+            self.config.enable_deduplication,
+            self.config.developer_id.clone(),
+            self.config.user_email.clone(),
+            self.config.project_name.clone(),
         );
 
         let batch_id = uuid::Uuid::new_v4().to_string();
@@ -172,7 +172,7 @@ impl SessionUploadWorkflow {
                 Arc::new(factory.expect("Factory should exist in non-dry-run mode"));
             let upload_repo = Arc::new(BigQueryUploadRepository::new(
                 client_factory,
-                config.clone(),
+                self.config.clone(),
             ));
             let upload_use_case =
                 UploadLogsUseCase::new(upload_repo, self.state_repository.clone());
@@ -191,12 +191,6 @@ impl SessionUploadWorkflow {
         println!("✓ Upload complete!");
 
         Ok(())
-    }
-}
-
-impl Default for SessionUploadWorkflow {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

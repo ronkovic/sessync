@@ -59,6 +59,9 @@ async fn test_workflow_execute_dry_run_success() {
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(temp_dir.path()).unwrap();
 
+    // Load configuration
+    let config = sessync::adapter::config::Config::load(&config_path).unwrap();
+
     // Create args with dry-run mode
     let args = Args {
         config: config_path,
@@ -71,8 +74,8 @@ async fn test_workflow_execute_dry_run_success() {
     // Override HOME to use temp directory
     std::env::set_var("HOME", temp_dir.path());
 
-    // Create workflow and execute
-    let workflow = SessionUploadWorkflow::new();
+    // Create workflow with injected config
+    let workflow = SessionUploadWorkflow::new(config);
 
     // This should succeed in dry-run mode without actual upload
     let result = workflow.execute(args).await;
@@ -107,6 +110,9 @@ async fn test_workflow_execute_empty_log_directory() {
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(temp_dir.path()).unwrap();
 
+    // Load configuration
+    let config = sessync::adapter::config::Config::load(&config_path).unwrap();
+
     let args = Args {
         config: config_path,
         dry_run: true,
@@ -117,7 +123,8 @@ async fn test_workflow_execute_empty_log_directory() {
 
     std::env::set_var("HOME", temp_dir.path());
 
-    let workflow = SessionUploadWorkflow::new();
+    // Create workflow with injected config
+    let workflow = SessionUploadWorkflow::new(config);
     let result = workflow.execute(args).await;
 
     std::env::set_current_dir(original_dir).unwrap();
