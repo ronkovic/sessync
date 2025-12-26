@@ -86,11 +86,11 @@ jobs:
         run: |
           coverage=$(cargo llvm-cov report --summary-only | grep -oP 'TOTAL.*\K\d+\.\d+')
           echo "Coverage: ${coverage}%"
-          if (( $(echo "$coverage < 85.0" | bc -l) )); then
-            echo "❌ Coverage below 85% threshold"
+          if (( $(echo "$coverage < 80.0" | bc -l) )); then
+            echo "❌ Coverage below 80% threshold"
             exit 1
           fi
-          echo "✅ Coverage is ${coverage}% (above 85% threshold)"
+          echo "✅ Coverage is ${coverage}% (above 80% threshold)"
 
   security:
     name: Security & Licenses

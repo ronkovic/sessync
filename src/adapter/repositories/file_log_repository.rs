@@ -177,7 +177,15 @@ mod tests {
         create_test_log_file(log_dir, "session.jsonl", "");
 
         // Use path with tilde (will be expanded)
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        // Get home directory - Windows uses USERPROFILE, Unix uses HOME
+        #[cfg(unix)]
+        let home =
+            std::env::var("HOME").expect("HOME environment variable should be set on Unix systems");
+
+        #[cfg(windows)]
+        let home = std::env::var("USERPROFILE")
+            .expect("USERPROFILE environment variable should be set on Windows");
+
         let relative_path = log_dir.to_str().unwrap().replace(&home, "~");
 
         let repo = FileLogRepository::new();
