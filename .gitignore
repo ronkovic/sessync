@@ -34,7 +34,7 @@ lcov.info
 .claude/commands/
 
 # IDE (user-specific)
-.serena/project.yml
+.serena/
 .vscode/
 
 # MCP related (auto-generated / user-specific)
