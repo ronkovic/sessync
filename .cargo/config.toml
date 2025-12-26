@@ -1,0 +1,25 @@
+[build]
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld"]
+
+[profile.dev]
+incremental = true
+debug = true
+
+[profile.test]
+opt-level = 1
+debug = true
+
+[net]
+git-fetch-with-cli = false
+
+[registries.crates-io]
+protocol = "sparse"
