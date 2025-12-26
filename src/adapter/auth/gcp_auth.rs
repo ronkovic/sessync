@@ -34,8 +34,8 @@ mod tests {
     fn test_expand_key_path_with_tilde() {
         // プラットフォーム別のホームディレクトリ環境変数取得
         #[cfg(unix)]
-        let home = std::env::var("HOME")
-            .expect("HOME environment variable should be set on Unix systems");
+        let home =
+            std::env::var("HOME").expect("HOME environment variable should be set on Unix systems");
 
         #[cfg(windows)]
         let home = std::env::var("USERPROFILE")
