@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ronkovic/sessync/actions/workflows/ci.yml/badge.svg)](https://github.com/ronkovic/sessync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ronkovic/sessync)](https://github.com/ronkovic/sessync/releases)
-[![Coverage](https://img.shields.io/badge/coverage-87.86%25-brightgreen)](./tests/README.md)
+[![Coverage](https://img.shields.io/badge/coverage-80.41%25-brightgreen)](./tests/README.md)
 
 Claude Codeのセッションログを BigQuery にアップロードするRustツール
 

@@ -629,6 +629,35 @@ cargo test
 
 **✅ Phase 4 完了 (2025-12-26)**
 
+### 実装内容
+
+このPhaseでは、Driver層のworkflow.rsをUse Cases経由のアーキテクチャに移行し、テストカバレッジを80%以上に改善しました。
+
+#### 4.0 実際の実装（2025-12-26）
+
+**実施内容:**
+1. **Repositoryインスタンス化の追加** (`src/driver/workflow.rs`)
+   - `DiscoverLogsUseCase<FileLogRepository>` を追加
+   - `ParseLogsUseCase<FileLogRepository, JsonStateRepository>` を追加
+   - `Arc` を使った依存性注入パターンを実装
+
+2. **execute()メソッドのリファクタリング**
+   - 直接的なファイル操作から Use Case経由の処理に変更
+   - `discover_log_files()` → `self.discover_use_case.execute()`
+   - `parse_log_file()` → `self.parse_use_case.execute()`
+   - ヘルパー関数（`discover_log_files`, `parse_log_file`）を削除
+
+3. **テストカバレッジの改善**
+   - `FileLogRepository` のテスト追加（8テスト、93.79%カバレッジ達成）
+   - Workflow統合テスト追加（dry-runモード、空ディレクトリハンドリング）
+   - 全体カバレッジ: 74.63% → 80.41% に改善
+
+**成果:**
+- テスト数: 85 → 95 (+10)
+- ワークフローカバレッジ: 18.15% → 43.15%
+- FileLogRepository カバレッジ: 0% → 93.79%
+- 全体カバレッジ: 80.41% (80%閾値達成)
+
 ### 目的
 
 CLI とワークフローを Driver層に移行し、依存性注入を実装する。
@@ -757,6 +786,38 @@ cargo run --release -- --dry-run
 ## Phase 5: クリーンアップ
 
 **✅ Phase 5 完了 (2025-12-26)**
+
+### 実装内容
+
+このPhaseでは、古いコードの削除と未使用importのクリーンアップ、ドキュメント更新を実施しました。
+
+#### 5.0 実際の実装（2025-12-26）
+
+**実施内容:**
+1. **古いファイルの削除**
+   - `src/auth.rs` - GCP認証（`adapter/auth/gcp_auth.rs` に統合済み）
+   - `src/config.rs` - 設定管理（`adapter/config/` に統合済み）
+   - `src/dedup.rs` - 重複排除（`domain/services/` に統合済み）
+   - `src/models.rs` - データモデル（`domain/entities/` に統合済み）
+   - `src/uploader.rs` - アップロード処理（`adapter/bigquery/` に分割済み）
+
+2. **コード品質の改善**
+   - 未使用importのクリーンアップ（`cargo clippy --fix`）
+   - コードフォーマットの適用（`cargo fmt`）
+   - 全95テスト通過確認
+   - カバレッジ80.41%維持
+
+3. **ドキュメント更新**
+   - README.md のカバレッジバッジ更新（87.86% → 80.41%）
+   - MIGRATION_GUIDE.md のPhase 4/5詳細追記
+   - アーキテクチャドキュメント確認（最新状態維持）
+
+**成果:**
+- クリーンアーキテクチャ移行完了（4層構造確立）
+- 不要なファイル削除（5ファイル）
+- テスト: 95テスト全て通過
+- カバレッジ: 80.41% (80%閾値維持)
+- コード品質: clippy警告0件
 
 ### 目的
 
