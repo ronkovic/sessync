@@ -32,9 +32,30 @@ mod tests {
 
     #[test]
     fn test_expand_key_path_with_tilde() {
-        let home = std::env::var("HOME").unwrap();
+        // プラットフォーム別のホームディレクトリ環境変数取得
+        #[cfg(unix)]
+        let home = std::env::var("HOME")
+            .expect("HOME environment variable should be set on Unix systems");
+
+        #[cfg(windows)]
+        let home = std::env::var("USERPROFILE")
+            .expect("USERPROFILE environment variable should be set on Windows");
+
         let result = expand_key_path("~/.claude/key.json");
-        assert_eq!(result, format!("{}/.claude/key.json", home));
+
+        // Windowsではパスセパレータが \ の可能性があるため正規化して比較
+        let expected = format!("{}/.claude/key.json", home);
+
+        #[cfg(unix)]
+        assert_eq!(result, expected);
+
+        #[cfg(windows)]
+        {
+            // shellexpandは / を使うが、環境変数は \ を含む可能性があるため正規化
+            let normalized_result = result.replace('\\', "/");
+            let normalized_expected = expected.replace('\\', "/");
+            assert_eq!(normalized_result, normalized_expected);
+        }
     }
 
     #[test]
