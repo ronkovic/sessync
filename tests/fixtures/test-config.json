@@ -1,0 +1,13 @@
+{
+  "project_id": "test-project",
+  "dataset": "test_dataset",
+  "table": "test_table",
+  "location": "US",
+  "service_account_key_path": "/tmp/test-key.json",
+  "upload_batch_size": 100,
+  "enable_auto_upload": false,
+  "enable_deduplication": true,
+  "developer_id": "test-dev",
+  "user_email": "test@example.com",
+  "project_name": "test-project"
+}
