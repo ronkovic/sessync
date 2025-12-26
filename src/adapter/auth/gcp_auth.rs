@@ -1,3 +1,7 @@
+//! GCP Authentication
+//!
+//! Google Cloud Platform認証機能
+
 use anyhow::{Context, Result};
 use google_cloud_bigquery::client::{Client, ClientConfig};
 
@@ -6,6 +10,7 @@ pub fn expand_key_path(key_path: &str) -> String {
     shellexpand::tilde(key_path).to_string()
 }
 
+/// Creates a BigQuery client with service account authentication
 pub async fn create_bigquery_client(key_path: &str) -> Result<Client> {
     let expanded_path = expand_key_path(key_path);
     std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &expanded_path);

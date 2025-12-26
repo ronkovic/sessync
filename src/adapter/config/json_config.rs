@@ -1,8 +1,13 @@
+//! JSON Configuration Loader
+//!
+//! JSON形式の設定ファイル読み込み
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[derive(Debug, Deserialize, Serialize)]
+/// Application configuration
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     pub project_id: String,
     pub dataset: String,
@@ -22,6 +27,7 @@ pub struct Config {
 }
 
 impl Config {
+    /// Load configuration from JSON file
     pub fn load(path: &str) -> Result<Self> {
         let content = fs::read_to_string(path)?;
         let config: Config = serde_json::from_str(&content)?;
