@@ -2,8 +2,8 @@
 //!
 //! ログファイルの発見とパースを抽象化
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 
 use crate::domain::entities::session_log::SessionLogInput;

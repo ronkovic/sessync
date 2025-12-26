@@ -8,14 +8,13 @@ use log::info;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use crate::adapter::config::Config;
-use super::models::SessionLogOutput;
 use super::client::{BigQueryClientFactory, BigQueryInserter};
+use super::models::SessionLogOutput;
 use super::retry::{
-    calculate_retry_delay, error_chain_to_string, is_connection_error,
-    is_request_too_large_error, is_retryable_error, is_transient_error,
-    BATCH_DELAY_MS, MAX_CONNECTION_RESETS, MAX_RETRIES,
+    calculate_retry_delay, error_chain_to_string, is_connection_error, is_request_too_large_error,
+    is_retryable_error, is_transient_error, BATCH_DELAY_MS, MAX_CONNECTION_RESETS, MAX_RETRIES,
 };
+use crate::adapter::config::Config;
 
 /// Prepare rows for BigQuery insertion
 pub fn prepare_rows(logs: &[SessionLogOutput]) -> Vec<Row<SessionLogOutput>> {
@@ -36,105 +35,105 @@ fn upload_batch_with_split<'a, T: BigQueryInserter>(
     _total_batches: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send + 'a>> {
     Box::pin(async move {
-    // Minimum batch size to avoid infinite splitting
-    const MIN_BATCH_SIZE: usize = 10;
+        // Minimum batch size to avoid infinite splitting
+        const MIN_BATCH_SIZE: usize = 10;
 
-    let rows = prepare_rows(chunk);
-    let request = InsertAllRequest {
-        rows,
-        skip_invalid_rows: None,
-        ignore_unknown_values: None,
-        template_suffix: None,
-        trace_id: None,
-    };
+        let rows = prepare_rows(chunk);
+        let request = InsertAllRequest {
+            rows,
+            skip_invalid_rows: None,
+            ignore_unknown_values: None,
+            template_suffix: None,
+            trace_id: None,
+        };
 
-    // Retry logic with exponential backoff
-    let mut retry_count = 0;
+        // Retry logic with exponential backoff
+        let mut retry_count = 0;
 
-    loop {
-        match client
-            .insert(&config.project_id, &config.dataset, &config.table, &request)
-            .await
-        {
-            Ok(response) => {
-                if let Some(errors) = response.insert_errors {
-                    println!("⚠ Batch {} had errors:", batch_num);
-                    for error in &errors {
-                        println!("  Row {}: {:?}", error.index, error.errors);
+        loop {
+            match client
+                .insert(&config.project_id, &config.dataset, &config.table, &request)
+                .await
+            {
+                Ok(response) => {
+                    if let Some(errors) = response.insert_errors {
+                        println!("⚠ Batch {} had errors:", batch_num);
+                        for error in &errors {
+                            println!("  Row {}: {:?}", error.index, error.errors);
+                        }
+                        return Ok(Vec::new());
+                    } else {
+                        println!("✓ Batch {} uploaded successfully", batch_num);
+                        return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
                     }
-                    return Ok(Vec::new());
-                } else {
-                    println!("✓ Batch {} uploaded successfully", batch_num);
-                    return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
                 }
-            }
-            Err(e) => {
-                let error_msg = error_chain_to_string(&e);
+                Err(e) => {
+                    let error_msg = error_chain_to_string(&e);
 
-                // Check if request is too large - split and retry
-                if is_request_too_large_error(&error_msg) {
-                    if chunk.len() <= MIN_BATCH_SIZE {
+                    // Check if request is too large - split and retry
+                    if is_request_too_large_error(&error_msg) {
+                        if chunk.len() <= MIN_BATCH_SIZE {
+                            println!(
+                                "✗ Batch {} is too large even at minimum size ({})",
+                                batch_num,
+                                chunk.len()
+                            );
+                            return Err(e).context("Batch too large even at minimum size");
+                        }
+
+                        let mid = chunk.len() / 2;
                         println!(
-                            "✗ Batch {} is too large even at minimum size ({})",
+                            "⚠ Batch {} too large ({} records), splitting into {} and {}...",
                             batch_num,
-                            chunk.len()
+                            chunk.len(),
+                            mid,
+                            chunk.len() - mid
                         );
-                        return Err(e).context("Batch too large even at minimum size");
+
+                        // Split and upload both halves
+                        let mut uploaded = Vec::new();
+                        uploaded.extend(
+                            upload_batch_with_split(
+                                client,
+                                config,
+                                &chunk[..mid],
+                                batch_num,
+                                _total_batches,
+                            )
+                            .await?,
+                        );
+                        uploaded.extend(
+                            upload_batch_with_split(
+                                client,
+                                config,
+                                &chunk[mid..],
+                                batch_num,
+                                _total_batches,
+                            )
+                            .await?,
+                        );
+                        return Ok(uploaded);
                     }
 
-                    let mid = chunk.len() / 2;
-                    println!(
-                        "⚠ Batch {} too large ({} records), splitting into {} and {}...",
-                        batch_num,
-                        chunk.len(),
-                        mid,
-                        chunk.len() - mid
-                    );
-
-                    // Split and upload both halves
-                    let mut uploaded = Vec::new();
-                    uploaded.extend(
-                        upload_batch_with_split(
-                            client,
-                            config,
-                            &chunk[..mid],
-                            batch_num,
-                            _total_batches,
-                        )
-                        .await?,
-                    );
-                    uploaded.extend(
-                        upload_batch_with_split(
-                            client,
-                            config,
-                            &chunk[mid..],
-                            batch_num,
-                            _total_batches,
-                        )
-                        .await?,
-                    );
-                    return Ok(uploaded);
-                }
-
-                // Regular retry logic for other errors
-                if is_retryable_error(&error_msg) && retry_count < MAX_RETRIES {
-                    retry_count += 1;
-                    let delay = calculate_retry_delay(retry_count);
-                    println!(
-                        "⚠ Batch {} failed (attempt {}), retrying in {}ms: {}",
-                        batch_num, retry_count, delay, error_msg
-                    );
-                    sleep(Duration::from_millis(delay)).await;
-                } else {
-                    println!(
-                        "✗ Failed to upload batch {} after {} retries: {}",
-                        batch_num, retry_count, error_msg
-                    );
-                    return Err(e).context("Failed to upload to BigQuery");
+                    // Regular retry logic for other errors
+                    if is_retryable_error(&error_msg) && retry_count < MAX_RETRIES {
+                        retry_count += 1;
+                        let delay = calculate_retry_delay(retry_count);
+                        println!(
+                            "⚠ Batch {} failed (attempt {}), retrying in {}ms: {}",
+                            batch_num, retry_count, delay, error_msg
+                        );
+                        sleep(Duration::from_millis(delay)).await;
+                    } else {
+                        println!(
+                            "✗ Failed to upload batch {} after {} retries: {}",
+                            batch_num, retry_count, error_msg
+                        );
+                        return Err(e).context("Failed to upload to BigQuery");
+                    }
                 }
             }
         }
-    }
     })
 }
 
@@ -147,150 +146,154 @@ fn upload_batch_with_split_resilient<'a, F: BigQueryClientFactory + ?Sized>(
     _total_batches: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send + 'a>> {
     Box::pin(async move {
-    const MIN_BATCH_SIZE: usize = 10;
+        const MIN_BATCH_SIZE: usize = 10;
 
-    let rows = prepare_rows(chunk);
-    let request = InsertAllRequest {
-        rows,
-        skip_invalid_rows: None,
-        ignore_unknown_values: None,
-        template_suffix: None,
-        trace_id: None,
-    };
+        let rows = prepare_rows(chunk);
+        let request = InsertAllRequest {
+            rows,
+            skip_invalid_rows: None,
+            ignore_unknown_values: None,
+            template_suffix: None,
+            trace_id: None,
+        };
 
-    let mut retry_count = 0;
-    let mut connection_reset_count = 0;
+        let mut retry_count = 0;
+        let mut connection_reset_count = 0;
 
-    // Create initial client
-    let mut client = factory.create_client().await?;
+        // Create initial client
+        let mut client = factory.create_client().await?;
 
-    loop {
-        match client
-            .insert(&config.project_id, &config.dataset, &config.table, &request)
-            .await
-        {
-            Ok(response) => {
-                if let Some(errors) = response.insert_errors {
-                    println!("⚠ Batch {} had errors:", batch_num);
-                    for error in &errors {
-                        println!("  Row {}: {:?}", error.index, error.errors);
+        loop {
+            match client
+                .insert(&config.project_id, &config.dataset, &config.table, &request)
+                .await
+            {
+                Ok(response) => {
+                    if let Some(errors) = response.insert_errors {
+                        println!("⚠ Batch {} had errors:", batch_num);
+                        for error in &errors {
+                            println!("  Row {}: {:?}", error.index, error.errors);
+                        }
+                        return Ok(Vec::new());
+                    } else {
+                        println!("✓ Batch {} uploaded successfully", batch_num);
+                        if connection_reset_count > 0 {
+                            println!(
+                                "  (recovered after {} connection resets)",
+                                connection_reset_count
+                            );
+                        }
+                        return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
                     }
-                    return Ok(Vec::new());
-                } else {
-                    println!("✓ Batch {} uploaded successfully", batch_num);
-                    if connection_reset_count > 0 {
-                        println!("  (recovered after {} connection resets)", connection_reset_count);
-                    }
-                    return Ok(chunk.iter().map(|l| l.uuid.clone()).collect());
                 }
-            }
-            Err(e) => {
-                let error_msg = error_chain_to_string(&e);
+                Err(e) => {
+                    let error_msg = error_chain_to_string(&e);
 
-                // Check if request is too large - split and retry
-                if is_request_too_large_error(&error_msg) {
-                    if chunk.len() <= MIN_BATCH_SIZE {
+                    // Check if request is too large - split and retry
+                    if is_request_too_large_error(&error_msg) {
+                        if chunk.len() <= MIN_BATCH_SIZE {
+                            println!(
+                                "✗ Batch {} is too large even at minimum size ({})",
+                                batch_num,
+                                chunk.len()
+                            );
+                            return Err(e).context("Batch too large even at minimum size");
+                        }
+
+                        let mid = chunk.len() / 2;
                         println!(
-                            "✗ Batch {} is too large even at minimum size ({})",
+                            "⚠ Batch {} too large ({} records), splitting into {} and {}...",
                             batch_num,
-                            chunk.len()
+                            chunk.len(),
+                            mid,
+                            chunk.len() - mid
                         );
-                        return Err(e).context("Batch too large even at minimum size");
+
+                        // Split and upload both halves
+                        let mut uploaded = Vec::new();
+                        uploaded.extend(
+                            upload_batch_with_split_resilient(
+                                factory,
+                                config,
+                                &chunk[..mid],
+                                batch_num,
+                                _total_batches,
+                            )
+                            .await?,
+                        );
+                        uploaded.extend(
+                            upload_batch_with_split_resilient(
+                                factory,
+                                config,
+                                &chunk[mid..],
+                                batch_num,
+                                _total_batches,
+                            )
+                            .await?,
+                        );
+                        return Ok(uploaded);
                     }
 
-                    let mid = chunk.len() / 2;
-                    println!(
-                        "⚠ Batch {} too large ({} records), splitting into {} and {}...",
-                        batch_num,
-                        chunk.len(),
-                        mid,
-                        chunk.len() - mid
-                    );
+                    // Connection error - recreate client
+                    if is_connection_error(&error_msg) {
+                        connection_reset_count += 1;
 
-                    // Split and upload both halves
-                    let mut uploaded = Vec::new();
-                    uploaded.extend(
-                        upload_batch_with_split_resilient(
-                            factory,
-                            config,
-                            &chunk[..mid],
-                            batch_num,
-                            _total_batches,
-                        )
-                        .await?,
-                    );
-                    uploaded.extend(
-                        upload_batch_with_split_resilient(
-                            factory,
-                            config,
-                            &chunk[mid..],
-                            batch_num,
-                            _total_batches,
-                        )
-                        .await?,
-                    );
-                    return Ok(uploaded);
-                }
+                        if connection_reset_count > MAX_CONNECTION_RESETS {
+                            println!(
+                                "✗ Batch {} failed after {} connection resets: {}",
+                                batch_num, connection_reset_count, error_msg
+                            );
+                            return Err(e).context("Too many connection resets");
+                        }
 
-                // Connection error - recreate client
-                if is_connection_error(&error_msg) {
-                    connection_reset_count += 1;
-
-                    if connection_reset_count > MAX_CONNECTION_RESETS {
                         println!(
-                            "✗ Batch {} failed after {} connection resets: {}",
+                            "⚠ Batch {} connection error (reset #{}), creating new client: {}",
                             batch_num, connection_reset_count, error_msg
                         );
-                        return Err(e).context("Too many connection resets");
-                    }
 
-                    println!(
-                        "⚠ Batch {} connection error (reset #{}), creating new client: {}",
-                        batch_num, connection_reset_count, error_msg
-                    );
+                        // Create new client
+                        match factory.create_client().await {
+                            Ok(new_client) => {
+                                client = new_client;
+                                println!("  ✓ New client created successfully");
 
-                    // Create new client
-                    match factory.create_client().await {
-                        Ok(new_client) => {
-                            client = new_client;
-                            println!("  ✓ New client created successfully");
+                                // Wait before retrying with new connection
+                                let delay = calculate_retry_delay(connection_reset_count);
+                                sleep(Duration::from_millis(delay)).await;
 
-                            // Wait before retrying with new connection
-                            let delay = calculate_retry_delay(connection_reset_count);
-                            sleep(Duration::from_millis(delay)).await;
-
-                            // Reset retry count for new connection
-                            retry_count = 0;
-                            continue;
-                        }
-                        Err(client_err) => {
-                            println!("✗ Failed to create new client: {}", client_err);
-                            return Err(client_err).context("Failed to recreate BigQuery client");
+                                // Reset retry count for new connection
+                                retry_count = 0;
+                                continue;
+                            }
+                            Err(client_err) => {
+                                println!("✗ Failed to create new client: {}", client_err);
+                                return Err(client_err)
+                                    .context("Failed to recreate BigQuery client");
+                            }
                         }
                     }
-                }
 
-                // Transient error - retry with same client
-                if is_transient_error(&error_msg) && retry_count < MAX_RETRIES {
-                    retry_count += 1;
-                    let delay = calculate_retry_delay(retry_count);
+                    // Transient error - retry with same client
+                    if is_transient_error(&error_msg) && retry_count < MAX_RETRIES {
+                        retry_count += 1;
+                        let delay = calculate_retry_delay(retry_count);
+                        println!(
+                            "⚠ Batch {} transient error (attempt {}), retrying in {}ms: {}",
+                            batch_num, retry_count, delay, error_msg
+                        );
+                        sleep(Duration::from_millis(delay)).await;
+                        continue;
+                    }
+
+                    // Non-retryable error or max retries exceeded
                     println!(
-                        "⚠ Batch {} transient error (attempt {}), retrying in {}ms: {}",
-                        batch_num, retry_count, delay, error_msg
+                        "✗ Failed to upload batch {} after {} retries: {}",
+                        batch_num, retry_count, error_msg
                     );
-                    sleep(Duration::from_millis(delay)).await;
-                    continue;
+                    return Err(e).context("Failed to upload to BigQuery");
                 }
-
-                // Non-retryable error or max retries exceeded
-                println!(
-                    "✗ Failed to upload batch {} after {} retries: {}",
-                    batch_num, retry_count, error_msg
-                );
-                return Err(e).context("Failed to upload to BigQuery");
             }
         }
-    }
     })
 }
 
@@ -403,9 +406,10 @@ pub async fn upload_to_bigquery_with_factory<F: BigQueryClientFactory + ?Sized>(
         );
 
         // Use the resilient upload function with factory pattern
-        let batch_uuids = upload_batch_with_split_resilient(factory, config, chunk, i + 1, total_batches)
-            .await
-            .context("Failed to upload batch")?;
+        let batch_uuids =
+            upload_batch_with_split_resilient(factory, config, chunk, i + 1, total_batches)
+                .await
+                .context("Failed to upload batch")?;
 
         uploaded_uuids.extend(batch_uuids);
 
@@ -426,8 +430,8 @@ pub async fn upload_to_bigquery_with_factory<F: BigQueryClientFactory + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::models::SessionLogOutput;
+    use super::*;
     use chrono::{TimeZone, Utc};
     use serde_json::json;
 

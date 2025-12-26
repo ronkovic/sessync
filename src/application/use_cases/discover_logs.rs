@@ -2,9 +2,9 @@
 //!
 //! ログファイル発見ユースケース
 
+use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use anyhow::Result;
 
 use crate::domain::repositories::log_repository::LogRepository;
 
@@ -25,19 +25,36 @@ impl<R: LogRepository> DiscoverLogsUseCase<R> {
         Self { log_repository }
     }
 
-    /// ログファイルを発見する
+    /// ログファイルを発見します。
     ///
-    /// # Arguments
+    /// # 引数
     ///
     /// * `log_dir` - ログディレクトリのパス
     ///
-    /// # Returns
+    /// # 戻り値
     ///
     /// 発見されたログファイルのパスのリスト
     ///
-    /// # Errors
+    /// # エラー
     ///
-    /// ディレクトリの読み取りに失敗した場合にエラーを返す
+    /// ディレクトリの読み取りに失敗した場合にエラーを返します。
+    ///
+    /// # 例
+    ///
+    /// ```no_run
+    /// use sessync::application::use_cases::discover_logs::DiscoverLogsUseCase;
+    /// use sessync::adapter::repositories::file_log_repository::FileLogRepository;
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let log_repo = Arc::new(FileLogRepository::new());
+    /// let use_case = DiscoverLogsUseCase::new(log_repo);
+    ///
+    /// let files = use_case.execute("/path/to/logs").await?;
+    /// println!("{}個のファイルを発見", files.len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn execute(&self, log_dir: &str) -> Result<Vec<PathBuf>> {
         self.log_repository.discover_log_files(log_dir).await
     }

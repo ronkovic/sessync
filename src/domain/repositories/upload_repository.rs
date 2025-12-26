@@ -2,8 +2,8 @@
 //!
 //! ログのアップロードを抽象化
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 
 use crate::domain::entities::upload_batch::UploadBatch;
 
@@ -28,7 +28,29 @@ impl UploadResult {
         }
     }
 
-    /// 成功したかどうかを返す
+    /// アップロードが完全に成功したかチェックします。
+    ///
+    /// # 戻り値
+    ///
+    /// 失敗数が0の場合に `true`
+    ///
+    /// # 例
+    ///
+    /// ```
+    /// use sessync::domain::repositories::upload_repository::UploadResult;
+    ///
+    /// // 成功ケース
+    /// let success = UploadResult::new(10, 0, vec![]);
+    /// assert!(success.is_success());
+    ///
+    /// // 部分的な失敗
+    /// let partial = UploadResult::new(8, 2, vec![]);
+    /// assert!(!partial.is_success());
+    ///
+    /// // 完全な失敗
+    /// let failure = UploadResult::new(0, 10, vec![]);
+    /// assert!(!failure.is_success());
+    /// ```
     pub fn is_success(&self) -> bool {
         self.failed_count == 0
     }

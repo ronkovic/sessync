@@ -2,15 +2,15 @@
 //!
 //! ログアップロードユースケース
 
-use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
+use std::sync::Arc;
 
+use crate::application::dto::upload_config::UploadConfig;
 use crate::domain::entities::session_log::SessionLog;
 use crate::domain::entities::upload_batch::UploadBatch;
-use crate::domain::repositories::upload_repository::UploadRepository;
 use crate::domain::repositories::state_repository::StateRepository;
-use crate::application::dto::upload_config::UploadConfig;
+use crate::domain::repositories::upload_repository::UploadRepository;
 
 /// アップロード結果のサマリー
 #[derive(Debug, Clone)]
@@ -45,22 +45,65 @@ impl<U: UploadRepository, S: StateRepository> UploadLogsUseCase<U, S> {
         }
     }
 
-    /// ログをアップロードして状態を更新
+    /// ログをBigQueryにアップロードします。
     ///
-    /// # Arguments
+    /// # 引数
     ///
     /// * `logs` - アップロードするセッションログ
     /// * `config` - アップロード設定
     /// * `state_path` - 状態ファイルのパス
     /// * `batch_id` - アップロードバッチID
     ///
-    /// # Returns
+    /// # 戻り値
     ///
     /// アップロード結果のサマリー
     ///
-    /// # Errors
+    /// # エラー
     ///
-    /// アップロードまたは状態の保存に失敗した場合にエラーを返す
+    /// アップロードまたは状態の保存に失敗した場合にエラーを返します。
+    ///
+    /// # 例
+    ///
+    /// ```no_run
+    /// use sessync::application::use_cases::upload_logs::UploadLogsUseCase;
+    /// use sessync::application::dto::upload_config::UploadConfig;
+    /// use sessync::adapter::repositories::bigquery_upload_repository::BigQueryUploadRepository;
+    /// use sessync::adapter::repositories::json_state_repository::JsonStateRepository;
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// # let client_factory = todo!(); // BigQuery client factory
+    /// # let bigquery_config = todo!(); // BigQuery config
+    /// let upload_repo = Arc::new(BigQueryUploadRepository::new(client_factory, bigquery_config));
+    /// let state_repo = Arc::new(JsonStateRepository);
+    /// let use_case = UploadLogsUseCase::new(upload_repo, state_repo);
+    ///
+    /// let config = UploadConfig::new(
+    ///     "project".to_string(),
+    ///     "dataset".to_string(),
+    ///     "table".to_string(),
+    ///     "US".to_string(),
+    ///     100,
+    ///     true,
+    ///     "dev".to_string(),
+    ///     "dev@example.com".to_string(),
+    ///     "app".to_string(),
+    /// );
+    ///
+    /// # let logs = vec![]; // セッションログ
+    /// let summary = use_case.execute(
+    ///     logs,
+    ///     &config,
+    ///     "/state/upload.json",
+    ///     "batch-001"
+    /// ).await?;
+    ///
+    /// println!("{}個アップロード成功、{}個失敗",
+    ///          summary.uploaded_count,
+    ///          summary.failed_count);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn execute(
         &self,
         logs: Vec<SessionLog>,
@@ -120,8 +163,8 @@ mod tests {
     use serde_json::json;
 
     use crate::domain::entities::session_log::LogMetadata;
-    use crate::domain::repositories::upload_repository::UploadResult;
     use crate::domain::repositories::state_repository::UploadState;
+    use crate::domain::repositories::upload_repository::UploadResult;
     use crate::domain::services::deduplication::DeduplicationService;
 
     struct MockUploadRepository {
@@ -176,12 +219,16 @@ mod tests {
             project_name: "test-project".to_string(),
             upload_batch_id: "batch-001".to_string(),
             source_file: "/path/to/log.jsonl".to_string(),
-            uploaded_at: chrono::Utc.with_ymd_and_hms(2024, 12, 25, 12, 0, 0).unwrap(),
+            uploaded_at: chrono::Utc
+                .with_ymd_and_hms(2024, 12, 25, 12, 0, 0)
+                .unwrap(),
         };
 
         SessionLog {
             uuid: uuid.to_string(),
-            timestamp: chrono::Utc.with_ymd_and_hms(2024, 12, 25, 10, 0, 0).unwrap(),
+            timestamp: chrono::Utc
+                .with_ymd_and_hms(2024, 12, 25, 10, 0, 0)
+                .unwrap(),
             session_id: "session-001".to_string(),
             agent_id: None,
             is_sidechain: None,
@@ -201,7 +248,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_logs_success() {
-        let mock_upload_repo = Arc::new(MockUploadRepository { should_succeed: true });
+        let mock_upload_repo = Arc::new(MockUploadRepository {
+            should_succeed: true,
+        });
         let mock_state_repo = Arc::new(MockStateRepository::new());
 
         let use_case = UploadLogsUseCase::new(mock_upload_repo, mock_state_repo.clone());
@@ -242,7 +291,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_logs_empty() {
-        let mock_upload_repo = Arc::new(MockUploadRepository { should_succeed: true });
+        let mock_upload_repo = Arc::new(MockUploadRepository {
+            should_succeed: true,
+        });
         let mock_state_repo = Arc::new(MockStateRepository::new());
 
         let use_case = UploadLogsUseCase::new(mock_upload_repo, mock_state_repo);
@@ -271,7 +322,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_logs_batch_splitting() {
-        let mock_upload_repo = Arc::new(MockUploadRepository { should_succeed: true });
+        let mock_upload_repo = Arc::new(MockUploadRepository {
+            should_succeed: true,
+        });
         let mock_state_repo = Arc::new(MockStateRepository::new());
 
         let use_case = UploadLogsUseCase::new(mock_upload_repo, mock_state_repo);

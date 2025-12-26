@@ -2,17 +2,17 @@
 //!
 //! UploadRepositoryのBigQuery実装
 
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
+use std::sync::Arc;
 
+use crate::adapter::bigquery::batch_uploader::upload_to_bigquery_with_factory;
+use crate::adapter::bigquery::client::BigQueryClientFactory;
+use crate::adapter::bigquery::models::SessionLogOutput;
+use crate::adapter::config::Config;
 use crate::domain::entities::session_log::SessionLog;
 use crate::domain::entities::upload_batch::UploadBatch;
 use crate::domain::repositories::upload_repository::{UploadRepository, UploadResult};
-use crate::adapter::bigquery::client::BigQueryClientFactory;
-use crate::adapter::bigquery::batch_uploader::upload_to_bigquery_with_factory;
-use crate::adapter::bigquery::models::SessionLogOutput;
-use crate::adapter::config::Config;
 
 /// BigQueryアップロードリポジトリ
 pub struct BigQueryUploadRepository {
@@ -59,25 +59,21 @@ impl BigQueryUploadRepository {
 impl UploadRepository for BigQueryUploadRepository {
     async fn upload_batch(&self, batch: &UploadBatch) -> Result<UploadResult> {
         // UploadBatchからmodels::SessionLogOutputに変換
-        let logs: Vec<SessionLogOutput> = batch
-            .logs()
-            .iter()
-            .map(Self::to_models_output)
-            .collect();
+        let logs: Vec<SessionLogOutput> = batch.logs().iter().map(Self::to_models_output).collect();
 
         // BigQueryにアップロード（dry_run = false）
         // Arc<dyn BigQueryClientFactory>から&dyn BigQueryClientFactoryを取得
-        let uploaded_uuids = upload_to_bigquery_with_factory(
-            self.factory.as_ref(),
-            &self.config,
-            logs,
-            false,
-        )
-        .await?;
+        let uploaded_uuids =
+            upload_to_bigquery_with_factory(self.factory.as_ref(), &self.config, logs, false)
+                .await?;
 
         let uploaded_count = uploaded_uuids.len();
         let failed_count = batch.len() - uploaded_count;
 
-        Ok(UploadResult::new(uploaded_count, failed_count, uploaded_uuids))
+        Ok(UploadResult::new(
+            uploaded_count,
+            failed_count,
+            uploaded_uuids,
+        ))
     }
 }

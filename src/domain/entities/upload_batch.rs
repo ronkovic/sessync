@@ -44,15 +44,70 @@ impl UploadBatch {
         self.logs
     }
 
-    /// バッチをサイズで分割
+    /// バッチをサイズで分割します。
     ///
-    /// # Arguments
+    /// # 引数
     ///
     /// * `batch_size` - 分割後の各バッチのサイズ
     ///
-    /// # Returns
+    /// # 戻り値
     ///
     /// 分割されたバッチのベクター
+    ///
+    /// # 例
+    ///
+    /// ```
+    /// use sessync::domain::entities::upload_batch::UploadBatch;
+    /// # use sessync::domain::entities::session_log::{SessionLog, LogMetadata};
+    /// # use chrono::Utc;
+    /// # use serde_json::json;
+    /// #
+    /// # fn create_test_log(uuid: &str) -> SessionLog {
+    /// #     let metadata = LogMetadata {
+    /// #         developer_id: "dev-001".to_string(),
+    /// #         hostname: "test-host".to_string(),
+    /// #         user_email: "test@example.com".to_string(),
+    /// #         project_name: "test-project".to_string(),
+    /// #         upload_batch_id: "batch-001".to_string(),
+    /// #         source_file: "/path/to/log.jsonl".to_string(),
+    /// #         uploaded_at: Utc::now(),
+    /// #     };
+    /// #     SessionLog {
+    /// #         uuid: uuid.to_string(),
+    /// #         timestamp: Utc::now(),
+    /// #         session_id: "session-001".to_string(),
+    /// #         agent_id: None,
+    /// #         is_sidechain: None,
+    /// #         parent_uuid: None,
+    /// #         user_type: None,
+    /// #         message_type: "user".to_string(),
+    /// #         slug: None,
+    /// #         request_id: None,
+    /// #         cwd: None,
+    /// #         git_branch: None,
+    /// #         version: None,
+    /// #         message: json!({}),
+    /// #         tool_use_result: None,
+    /// #         metadata,
+    /// #     }
+    /// # }
+    ///
+    /// let logs = vec![
+    ///     create_test_log("uuid-1"),
+    ///     create_test_log("uuid-2"),
+    ///     create_test_log("uuid-3"),
+    ///     create_test_log("uuid-4"),
+    ///     create_test_log("uuid-5"),
+    /// ];
+    ///
+    /// let batch = UploadBatch::new(logs);
+    /// let smaller = batch.split_by_size(2);
+    ///
+    /// assert_eq!(smaller.len(), 3);      // [2, 2, 1]
+    /// assert_eq!(smaller[0].len(), 2);
+    /// assert_eq!(smaller[1].len(), 2);
+    /// assert_eq!(smaller[2].len(), 1);
+    /// ```
     pub fn split_by_size(self, batch_size: usize) -> Vec<UploadBatch> {
         if batch_size == 0 {
             return vec![self];
@@ -64,14 +119,101 @@ impl UploadBatch {
             .collect()
     }
 
-    /// バッチを2つに分割
+    /// バッチを2つに分割します。
     ///
-    /// 中央で分割し、2つのバッチを返す
-    /// ログ数が1の場合は元のバッチと空のバッチを返す
+    /// 中央で分割し、2つのバッチを返します。
+    /// ログ数が1の場合は元のバッチと空のバッチを返します。
     ///
-    /// # Returns
+    /// # 戻り値
     ///
     /// (前半バッチ, 後半バッチ)
+    ///
+    /// # 例
+    ///
+    /// 偶数個の場合：
+    ///
+    /// ```
+    /// use sessync::domain::entities::upload_batch::UploadBatch;
+    /// # use sessync::domain::entities::session_log::{SessionLog, LogMetadata};
+    /// # use chrono::Utc;
+    /// # use serde_json::json;
+    /// # fn create_test_log(uuid: &str) -> SessionLog {
+    /// #     let metadata = LogMetadata {
+    /// #         developer_id: "dev-001".to_string(),
+    /// #         hostname: "test-host".to_string(),
+    /// #         user_email: "test@example.com".to_string(),
+    /// #         project_name: "test-project".to_string(),
+    /// #         upload_batch_id: "batch-001".to_string(),
+    /// #         source_file: "/path/to/log.jsonl".to_string(),
+    /// #         uploaded_at: Utc::now(),
+    /// #     };
+    /// #     SessionLog {
+    /// #         uuid: uuid.to_string(),
+    /// #         timestamp: Utc::now(),
+    /// #         session_id: "session-001".to_string(),
+    /// #         agent_id: None, is_sidechain: None, parent_uuid: None,
+    /// #         user_type: None, message_type: "user".to_string(),
+    /// #         slug: None, request_id: None, cwd: None,
+    /// #         git_branch: None, version: None,
+    /// #         message: json!({}), tool_use_result: None, metadata,
+    /// #     }
+    /// # }
+    ///
+    /// let logs = vec![
+    ///     create_test_log("uuid-1"),
+    ///     create_test_log("uuid-2"),
+    ///     create_test_log("uuid-3"),
+    ///     create_test_log("uuid-4"),
+    /// ];
+    /// let batch = UploadBatch::new(logs);
+    ///
+    /// let (first, second) = batch.split_half();
+    ///
+    /// assert_eq!(first.len(), 2);
+    /// assert_eq!(second.len(), 2);
+    /// ```
+    ///
+    /// 奇数個の場合（後半が多くなります）：
+    ///
+    /// ```
+    /// # use sessync::domain::entities::upload_batch::UploadBatch;
+    /// # use sessync::domain::entities::session_log::{SessionLog, LogMetadata};
+    /// # use chrono::Utc;
+    /// # use serde_json::json;
+    /// # fn create_test_log(uuid: &str) -> SessionLog {
+    /// #     let metadata = LogMetadata {
+    /// #         developer_id: "dev-001".to_string(),
+    /// #         hostname: "test-host".to_string(),
+    /// #         user_email: "test@example.com".to_string(),
+    /// #         project_name: "test-project".to_string(),
+    /// #         upload_batch_id: "batch-001".to_string(),
+    /// #         source_file: "/path/to/log.jsonl".to_string(),
+    /// #         uploaded_at: Utc::now(),
+    /// #     };
+    /// #     SessionLog {
+    /// #         uuid: uuid.to_string(),
+    /// #         timestamp: Utc::now(),
+    /// #         session_id: "session-001".to_string(),
+    /// #         agent_id: None, is_sidechain: None, parent_uuid: None,
+    /// #         user_type: None, message_type: "user".to_string(),
+    /// #         slug: None, request_id: None, cwd: None,
+    /// #         git_branch: None, version: None,
+    /// #         message: json!({}), tool_use_result: None, metadata,
+    /// #     }
+    /// # }
+    ///
+    /// let logs = vec![
+    ///     create_test_log("uuid-1"),
+    ///     create_test_log("uuid-2"),
+    ///     create_test_log("uuid-3"),
+    /// ];
+    /// let batch = UploadBatch::new(logs);
+    ///
+    /// let (first, second) = batch.split_half();
+    ///
+    /// assert_eq!(first.len(), 1);
+    /// assert_eq!(second.len(), 2);
+    /// ```
     pub fn split_half(self) -> (UploadBatch, UploadBatch) {
         if self.logs.len() <= 1 {
             return (self, UploadBatch::new(vec![]));

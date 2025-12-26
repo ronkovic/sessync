@@ -2,8 +2,8 @@
 //!
 //! アップロード状態の永続化を抽象化
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

@@ -29,7 +29,51 @@ pub struct UploadConfig {
 }
 
 impl UploadConfig {
-    /// 新しいアップロード設定を作成
+    /// 新しいアップロード設定を作成します。
+    ///
+    /// # 例
+    ///
+    /// 開発環境の設定：
+    ///
+    /// ```
+    /// use sessync::application::dto::upload_config::UploadConfig;
+    ///
+    /// let config = UploadConfig::new(
+    ///     "my-gcp-project-dev".to_string(),
+    ///     "claude_logs_dev".to_string(),
+    ///     "session_logs".to_string(),
+    ///     "US".to_string(),
+    ///     100,              // 小さいバッチサイズ
+    ///     true,             // 重複排除を有効化
+    ///     "dev-alice".to_string(),
+    ///     "alice@example.com".to_string(),
+    ///     "my-app".to_string(),
+    /// );
+    ///
+    /// assert_eq!(config.batch_size, 100);
+    /// assert!(config.enable_deduplication);
+    /// assert_eq!(config.location, "US");
+    /// ```
+    ///
+    /// 本番環境（アジアリージョン）の設定：
+    ///
+    /// ```
+    /// # use sessync::application::dto::upload_config::UploadConfig;
+    /// let prod = UploadConfig::new(
+    ///     "my-gcp-project-prod".to_string(),
+    ///     "claude_logs".to_string(),
+    ///     "session_logs".to_string(),
+    ///     "asia-northeast1".to_string(),  // アジアリージョン
+    ///     500,              // 大きいバッチサイズ
+    ///     true,
+    ///     "prod-system".to_string(),
+    ///     "prod@example.com".to_string(),
+    ///     "my-app".to_string(),
+    /// );
+    ///
+    /// assert_eq!(prod.location, "asia-northeast1");
+    /// assert_eq!(prod.batch_size, 500);
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         project_id: String,

@@ -10,7 +10,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use crate::domain::repositories::state_repository::{StateRepository, UploadState as DomainUploadState};
+use crate::domain::repositories::state_repository::{
+    StateRepository, UploadState as DomainUploadState,
+};
 
 /// JSONファイルベースの状態リポジトリ
 pub struct JsonStateRepository;
@@ -200,7 +202,10 @@ mod tests {
 
         let domain_state = JsonStateRepository::to_domain_state(json_state);
 
-        assert_eq!(domain_state.last_upload_timestamp.unwrap(), "2024-12-25T10:00:00Z");
+        assert_eq!(
+            domain_state.last_upload_timestamp.unwrap(),
+            "2024-12-25T10:00:00Z"
+        );
         assert_eq!(domain_state.uploaded_uuids.len(), 1);
         assert!(domain_state.uploaded_uuids.contains("uuid-1"));
         assert_eq!(domain_state.total_uploaded, 10);
@@ -217,7 +222,10 @@ mod tests {
 
         let json_state = JsonStateRepository::from_domain_state(&domain_state);
 
-        assert_eq!(json_state.last_upload_timestamp.unwrap(), "2024-12-25T10:00:00Z");
+        assert_eq!(
+            json_state.last_upload_timestamp.unwrap(),
+            "2024-12-25T10:00:00Z"
+        );
         assert_eq!(json_state.uploaded_uuids.len(), 1);
         assert!(json_state.uploaded_uuids.contains("uuid-1"));
         assert_eq!(json_state.total_uploaded, 10);

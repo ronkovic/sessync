@@ -2,16 +2,16 @@
 //!
 //! ログパースと重複排除ユースケース
 
-use std::path::Path;
-use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
+use std::path::Path;
+use std::sync::Arc;
 
+use crate::application::dto::upload_config::UploadConfig;
 use crate::domain::entities::session_log::{LogMetadata, SessionLog, SessionLogInput};
 use crate::domain::repositories::log_repository::LogRepository;
 use crate::domain::repositories::state_repository::StateRepository;
 use crate::domain::services::deduplication::DeduplicationService;
-use crate::application::dto::upload_config::UploadConfig;
 
 /// ログパースと重複排除ユースケース
 ///
@@ -35,22 +35,62 @@ impl<L: LogRepository, S: StateRepository> ParseLogsUseCase<L, S> {
         }
     }
 
-    /// ログファイルをパースして重複を排除
+    /// ログファイルをパースし、重複排除を適用します。
     ///
-    /// # Arguments
+    /// # 引数
     ///
     /// * `file_paths` - ログファイルのパスのリスト
     /// * `config` - アップロード設定
     /// * `state_path` - 状態ファイルのパス
     /// * `batch_id` - アップロードバッチID
     ///
-    /// # Returns
+    /// # 戻り値
     ///
-    /// パース後のセッションログのリスト
+    /// パース後の（重複排除後の）セッションログのリスト
     ///
-    /// # Errors
+    /// # エラー
     ///
-    /// パースに失敗した場合にエラーを返す
+    /// パースに失敗した場合にエラーを返します。
+    ///
+    /// # 例
+    ///
+    /// ```no_run
+    /// use sessync::application::use_cases::parse_logs::ParseLogsUseCase;
+    /// use sessync::application::dto::upload_config::UploadConfig;
+    /// use sessync::adapter::repositories::file_log_repository::FileLogRepository;
+    /// use sessync::adapter::repositories::json_state_repository::JsonStateRepository;
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    ///
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let log_repo = Arc::new(FileLogRepository::new());
+    /// let state_repo = Arc::new(JsonStateRepository);
+    /// let use_case = ParseLogsUseCase::new(log_repo, state_repo);
+    ///
+    /// let config = UploadConfig::new(
+    ///     "project".to_string(),
+    ///     "dataset".to_string(),
+    ///     "table".to_string(),
+    ///     "US".to_string(),
+    ///     100,
+    ///     true,
+    ///     "dev".to_string(),
+    ///     "dev@example.com".to_string(),
+    ///     "app".to_string(),
+    /// );
+    ///
+    /// let files = vec![PathBuf::from("/logs/session1.jsonl")];
+    /// let logs = use_case.execute(
+    ///     &files,
+    ///     &config,
+    ///     "/state/upload.json",
+    ///     "batch-001"
+    /// ).await?;
+    ///
+    /// println!("{}個のログをパース", logs.len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn execute(
         &self,
         file_paths: &[impl AsRef<Path>],
@@ -64,16 +104,15 @@ impl<L: LogRepository, S: StateRepository> ParseLogsUseCase<L, S> {
         // 全ログファイルをパース
         let mut all_logs = Vec::new();
         for file_path in file_paths {
-            let inputs = self.log_repository.parse_log_file(file_path.as_ref()).await?;
+            let inputs = self
+                .log_repository
+                .parse_log_file(file_path.as_ref())
+                .await?;
 
             // SessionLogInputをSessionLogに変換
             for input in inputs {
-                let session_log = convert_input_to_session_log(
-                    input,
-                    file_path.as_ref(),
-                    config,
-                    batch_id,
-                )?;
+                let session_log =
+                    convert_input_to_session_log(input, file_path.as_ref(), config, batch_id)?;
                 all_logs.push(session_log);
             }
         }
@@ -132,11 +171,11 @@ fn convert_input_to_session_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::repositories::state_repository::UploadState;
     use async_trait::async_trait;
-    use std::path::PathBuf;
     use chrono::TimeZone;
     use serde_json::json;
-    use crate::domain::repositories::state_repository::UploadState;
+    use std::path::PathBuf;
 
     struct MockLogRepository {
         logs: Vec<SessionLogInput>,
@@ -229,10 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_logs_without_deduplication() {
-        let inputs = vec![
-            create_test_input("uuid-1"),
-            create_test_input("uuid-2"),
-        ];
+        let inputs = vec![create_test_input("uuid-1"), create_test_input("uuid-2")];
         let mock_log_repo = Arc::new(MockLogRepository { logs: inputs });
 
         let mut state = UploadState::new();

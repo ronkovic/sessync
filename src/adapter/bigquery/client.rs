@@ -5,9 +5,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use google_cloud_bigquery::client::Client;
-use google_cloud_bigquery::http::tabledata::insert_all::{
-    InsertAllRequest, InsertAllResponse,
-};
+use google_cloud_bigquery::http::tabledata::insert_all::{InsertAllRequest, InsertAllResponse};
 
 #[cfg(test)]
 use mockall::automock;

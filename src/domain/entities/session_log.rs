@@ -84,20 +84,102 @@ pub struct SessionLog {
 }
 
 impl SessionLog {
-    /// 新しいセッションログを作成
+    /// 新しいセッションログを作成します。
     ///
-    /// # Arguments
+    /// # 引数
     ///
     /// * `uuid` - ログの一意識別子
     /// * `timestamp` - ログのタイムスタンプ
     /// * `session_id` - セッションID
+    /// * `agent_id` - エージェントID（オプション）
+    /// * `is_sidechain` - サイドチェーンかどうか（オプション）
+    /// * `parent_uuid` - 親UUID（オプション）
+    /// * `user_type` - ユーザータイプ（オプション）
     /// * `message_type` - メッセージタイプ
+    /// * `slug` - スラッグ（オプション）
+    /// * `request_id` - リクエストID（オプション）
+    /// * `cwd` - カレントディレクトリ（オプション）
+    /// * `git_branch` - Gitブランチ（オプション）
+    /// * `version` - バージョン（オプション）
     /// * `message` - メッセージ内容
+    /// * `tool_use_result` - ツール使用結果（オプション）
     /// * `metadata` - メタデータ
     ///
-    /// # Errors
+    /// # エラー
     ///
-    /// UUIDが空の場合にエラーを返す
+    /// `uuid` が空文字列の場合にエラーを返します。
+    ///
+    /// # 例
+    ///
+    /// 基本的な使用例：
+    ///
+    /// ```
+    /// use sessync::domain::entities::session_log::{SessionLog, LogMetadata};
+    /// use chrono::Utc;
+    /// use serde_json::json;
+    ///
+    /// let metadata = LogMetadata {
+    ///     developer_id: "dev-123".to_string(),
+    ///     hostname: "my-laptop".to_string(),
+    ///     user_email: "user@example.com".to_string(),
+    ///     project_name: "my-project".to_string(),
+    ///     upload_batch_id: "batch-001".to_string(),
+    ///     source_file: "/logs/session.jsonl".to_string(),
+    ///     uploaded_at: Utc::now(),
+    /// };
+    ///
+    /// let log = SessionLog::new(
+    ///     "uuid-123".to_string(),
+    ///     Utc::now(),
+    ///     "session-abc".to_string(),
+    ///     None,                          // agent_id
+    ///     None,                          // is_sidechain
+    ///     None,                          // parent_uuid
+    ///     None,                          // user_type
+    ///     "user".to_string(),
+    ///     None,                          // slug
+    ///     None,                          // request_id
+    ///     Some("/home/user/project".to_string()),
+    ///     Some("main".to_string()),
+    ///     Some("1.0.0".to_string()),
+    ///     json!({"role": "user", "content": "Hello"}),
+    ///     None,                          // tool_use_result
+    ///     metadata,
+    /// ).unwrap();
+    ///
+    /// assert_eq!(log.uuid, "uuid-123");
+    /// assert_eq!(log.session_id, "session-abc");
+    /// ```
+    ///
+    /// バリデーションエラー（空のUUID）：
+    ///
+    /// ```should_panic
+    /// # use sessync::domain::entities::session_log::{SessionLog, LogMetadata};
+    /// # use chrono::Utc;
+    /// # use serde_json::json;
+    /// # let metadata = LogMetadata {
+    /// #     developer_id: "dev".to_string(),
+    /// #     hostname: "host".to_string(),
+    /// #     user_email: "user@example.com".to_string(),
+    /// #     project_name: "proj".to_string(),
+    /// #     upload_batch_id: "batch".to_string(),
+    /// #     source_file: "/log".to_string(),
+    /// #     uploaded_at: Utc::now(),
+    /// # };
+    ///
+    /// // 空のUUIDはエラー
+    /// SessionLog::new(
+    ///     "".to_string(),               // ❌ 無効
+    ///     Utc::now(),
+    ///     "session".to_string(),
+    ///     None, None, None, None,
+    ///     "user".to_string(),
+    ///     None, None, None, None, None,
+    ///     json!({}),
+    ///     None,
+    ///     metadata,
+    /// ).unwrap();
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         uuid: String,
