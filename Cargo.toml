@@ -19,7 +19,7 @@ tokio = { version = "1.35", features = ["full"] }
 
 # エラーハンドリング
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # ファイルシステム操作
 walkdir = "2.4"
