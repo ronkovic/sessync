@@ -230,4 +230,23 @@ mod tests {
         assert!(json_state.uploaded_uuids.contains("uuid-1"));
         assert_eq!(json_state.total_uploaded, 10);
     }
+
+    #[test]
+    fn test_new() {
+        let repo = JsonStateRepository::new();
+
+        // Verify repository is valid by confirming type
+        let _: JsonStateRepository = repo;
+
+        // Verify by loading from nonexistent path (should return empty state)
+        let result = JsonStateRepository::load_sync("/nonexistent/path1.json");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_default_impl() {
+        // Test that Default trait is implemented correctly
+        let repo: JsonStateRepository = Default::default();
+        let _: JsonStateRepository = repo;
+    }
 }

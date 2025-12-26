@@ -11,6 +11,9 @@
 //!
 //! 詳細は `ARCHITECTURE.md` および `CLEAN_ARCHITECTURE.md` を参照してください。
 
+// coverage_nightly cfg が設定されている場合のみ coverage_attribute を有効化
+// カバレッジ計測時に外部サービス依存コードを除外するために使用
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 // TODO: Driver層を新しいクリーンアーキテクチャのUse Caseに移行する
 // 現在はAdapter層のコードを直接使用しているため、一時的にdead_code警告を抑制
 #![allow(dead_code)]

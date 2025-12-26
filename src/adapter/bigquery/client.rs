@@ -38,6 +38,7 @@ impl<'a> RealBigQueryClient<'a> {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[async_trait]
 impl BigQueryInserter for RealBigQueryClient<'_> {
     async fn insert(
@@ -66,6 +67,7 @@ impl OwnedBigQueryClient {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[async_trait]
 impl BigQueryInserter for OwnedBigQueryClient {
     async fn insert(
@@ -100,6 +102,7 @@ impl RealClientFactory {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[async_trait]
 impl BigQueryClientFactory for RealClientFactory {
     async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>> {

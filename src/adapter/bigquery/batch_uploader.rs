@@ -430,9 +430,12 @@ pub async fn upload_to_bigquery_with_factory<F: BigQueryClientFactory + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::client::{BigQueryClientFactory, MockBigQueryInserter};
     use super::super::models::SessionLogOutput;
     use super::*;
+    use async_trait::async_trait;
     use chrono::{TimeZone, Utc};
+    use google_cloud_bigquery::http::tabledata::insert_all::InsertAllResponse;
     use serde_json::json;
 
     fn create_test_log(uuid: &str) -> SessionLogOutput {
@@ -459,6 +462,22 @@ mod tests {
             upload_batch_id: "batch-001".to_string(),
             source_file: "/path/to/log.jsonl".to_string(),
             uploaded_at: Utc.with_ymd_and_hms(2024, 12, 25, 12, 0, 0).unwrap(),
+        }
+    }
+
+    fn create_test_config() -> Config {
+        Config {
+            project_id: "test-project".to_string(),
+            dataset: "test-dataset".to_string(),
+            table: "test-table".to_string(),
+            location: "US".to_string(),
+            service_account_key_path: "/path/to/key.json".to_string(),
+            upload_batch_size: 100,
+            enable_auto_upload: false,
+            enable_deduplication: true,
+            developer_id: "dev-001".to_string(),
+            user_email: "test@example.com".to_string(),
+            project_name: "test-project".to_string(),
         }
     }
 
@@ -492,5 +511,304 @@ mod tests {
         let logs: Vec<SessionLogOutput> = vec![];
         let rows = prepare_rows(&logs);
         assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_empty_logs() {
+        let mock = MockBigQueryInserter::new();
+        let config = create_test_config();
+        let logs: Vec<SessionLogOutput> = vec![];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_dry_run() {
+        let mock = MockBigQueryInserter::new();
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1"), create_test_log("uuid-2")];
+
+        let result = upload_to_bigquery(&mock, &config, logs, true).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 2);
+        assert!(uuids.contains(&"uuid-1".to_string()));
+        assert!(uuids.contains(&"uuid-2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_success() {
+        let mut mock = MockBigQueryInserter::new();
+        mock.expect_insert().returning(|_, _, _, _| {
+            Ok(InsertAllResponse {
+                kind: "bigquery#tableDataInsertAllResponse".to_string(),
+                insert_errors: None,
+            })
+        });
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+        assert_eq!(uuids[0], "uuid-1");
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_multiple_batches() {
+        let mut mock = MockBigQueryInserter::new();
+        mock.expect_insert().times(2).returning(|_, _, _, _| {
+            Ok(InsertAllResponse {
+                kind: "bigquery#tableDataInsertAllResponse".to_string(),
+                insert_errors: None,
+            })
+        });
+
+        let mut config = create_test_config();
+        config.upload_batch_size = 2; // Small batch size to force multiple batches
+
+        let logs = vec![
+            create_test_log("uuid-1"),
+            create_test_log("uuid-2"),
+            create_test_log("uuid-3"),
+        ];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 3);
+    }
+
+    // Mock factory for testing upload_to_bigquery_with_factory
+    struct MockClientFactory {
+        inserter: std::sync::Arc<std::sync::Mutex<Option<MockBigQueryInserter>>>,
+    }
+
+    impl MockClientFactory {
+        fn new(mock: MockBigQueryInserter) -> Self {
+            Self {
+                inserter: std::sync::Arc::new(std::sync::Mutex::new(Some(mock))),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BigQueryClientFactory for MockClientFactory {
+        async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>> {
+            let mock = self
+                .inserter
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Mock already consumed"))?;
+            Ok(Box::new(mock))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_with_factory_empty() {
+        let mock = MockBigQueryInserter::new();
+        let factory = MockClientFactory::new(mock);
+        let config = create_test_config();
+        let logs: Vec<SessionLogOutput> = vec![];
+
+        let result = upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_with_factory_dry_run() {
+        let mock = MockBigQueryInserter::new();
+        let factory = MockClientFactory::new(mock);
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery_with_factory(&factory, &config, logs, true).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+        assert_eq!(uuids[0], "uuid-1");
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_with_factory_success() {
+        let mut mock = MockBigQueryInserter::new();
+        mock.expect_insert().returning(|_, _, _, _| {
+            Ok(InsertAllResponse {
+                kind: "bigquery#tableDataInsertAllResponse".to_string(),
+                insert_errors: None,
+            })
+        });
+
+        let factory = MockClientFactory::new(mock);
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_transient_error_then_success() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let call_count = std::sync::Arc::new(AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+
+        let mut mock = MockBigQueryInserter::new();
+        mock.expect_insert().times(2).returning(move |_, _, _, _| {
+            let count = call_count_clone.fetch_add(1, Ordering::SeqCst);
+            if count == 0 {
+                // First call: transient error (503)
+                Err(anyhow::anyhow!("503 Service Unavailable"))
+            } else {
+                // Second call: success
+                Ok(InsertAllResponse {
+                    kind: "bigquery#tableDataInsertAllResponse".to_string(),
+                    insert_errors: None,
+                })
+            }
+        });
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_max_retries_exceeded() {
+        let mut mock = MockBigQueryInserter::new();
+        // All calls fail with transient error
+        mock.expect_insert()
+            .times((MAX_RETRIES + 1) as usize)
+            .returning(|_, _, _, _| Err(anyhow::anyhow!("503 Service Unavailable")));
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        // Should fail after max retries
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_non_retryable_error() {
+        let mut mock = MockBigQueryInserter::new();
+        // Non-retryable error (authentication failure)
+        mock.expect_insert()
+            .times(1)
+            .returning(|_, _, _, _| Err(anyhow::anyhow!("Authentication failed")));
+
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery(&mock, &config, logs, false).await;
+
+        // Should fail immediately without retry
+        assert!(result.is_err());
+    }
+
+    // Multi-client factory for testing connection resilience
+    struct MultiClientFactory {
+        clients: std::sync::Arc<std::sync::Mutex<Vec<MockBigQueryInserter>>>,
+    }
+
+    impl MultiClientFactory {
+        fn new(clients: Vec<MockBigQueryInserter>) -> Self {
+            Self {
+                clients: std::sync::Arc::new(std::sync::Mutex::new(clients)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BigQueryClientFactory for MultiClientFactory {
+        async fn create_client(&self) -> Result<Box<dyn BigQueryInserter>> {
+            let mut clients = self.clients.lock().unwrap();
+            if clients.is_empty() {
+                return Err(anyhow::anyhow!("No more clients available"));
+            }
+            Ok(Box::new(clients.remove(0)))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_with_factory_connection_reset_recovery() {
+        // First client fails with connection error, second client succeeds
+        let mut mock1 = MockBigQueryInserter::new();
+        mock1
+            .expect_insert()
+            .times(1)
+            .returning(|_, _, _, _| Err(anyhow::anyhow!("Connection reset by peer")));
+
+        let mut mock2 = MockBigQueryInserter::new();
+        mock2.expect_insert().times(1).returning(|_, _, _, _| {
+            Ok(InsertAllResponse {
+                kind: "bigquery#tableDataInsertAllResponse".to_string(),
+                insert_errors: None,
+            })
+        });
+
+        let factory = MultiClientFactory::new(vec![mock1, mock2]);
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        assert!(result.is_ok());
+        let uuids = result.unwrap();
+        assert_eq!(uuids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_upload_to_bigquery_with_factory_max_connection_resets() {
+        // All clients fail with connection error
+        let mut clients = Vec::new();
+        for _ in 0..=MAX_CONNECTION_RESETS {
+            let mut mock = MockBigQueryInserter::new();
+            mock.expect_insert()
+                .times(1)
+                .returning(|_, _, _, _| Err(anyhow::anyhow!("Connection reset by peer")));
+            clients.push(mock);
+        }
+
+        let factory = MultiClientFactory::new(clients);
+        let config = create_test_config();
+        let logs = vec![create_test_log("uuid-1")];
+
+        let result = upload_to_bigquery_with_factory(&factory, &config, logs, false).await;
+
+        // Should fail after max connection resets
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_msg = format!("{:?}", err);
+        assert!(
+            err_msg.contains("connection")
+                || err_msg.contains("reset")
+                || err_msg.contains("Too many"),
+            "Error should mention connection reset: {}",
+            err_msg
+        );
     }
 }

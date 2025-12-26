@@ -55,6 +55,7 @@ impl BigQueryUploadRepository {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[async_trait]
 impl UploadRepository for BigQueryUploadRepository {
     async fn upload_batch(&self, batch: &UploadBatch) -> Result<UploadResult> {

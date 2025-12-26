@@ -13,6 +13,8 @@
 5. [ドキュメント](#ドキュメント)
 6. [パフォーマンス](#パフォーマンス)
 7. [その他のベストプラクティス](#その他のベストプラクティス)
+8. [CI ルール](#ci-ルール)
+9. [ローカル CI 確認](#ローカル-ci-確認)
 
 ---
 
@@ -598,6 +600,144 @@ pub fn process() -> std::result::Result<(), DomainError> { ... }
 
 ---
 
+## CI ルール
+
+### CIで実行されるチェック
+
+GitHub Actions で以下の5つのジョブが実行されます。すべてパスしないとマージできません。
+
+| ジョブ | チェック内容 |
+|--------|-------------|
+| **Lint** | フォーマット、Clippy、ドキュメントビルド |
+| **Test** | 全テスト（nextest + doctest） |
+| **Coverage** | Line Coverage 80%以上 |
+| **Security** | 脆弱性チェック、ライセンス違反チェック |
+| **Build** | リリースビルド（Linux, macOS, Windows） |
+
+### 各ジョブの詳細ルール
+
+#### 1. Lint
+
+```bash
+# フォーマット: 差分があると失敗
+cargo fmt --all -- --check
+
+# Clippy: 警告があると失敗
+cargo clippy --all-targets --all-features -- -D warnings
+
+# ドキュメント: 警告があると失敗
+RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps --document-private-items
+```
+
+#### 2. Test
+
+```bash
+# 全テスト実行
+cargo nextest run --profile ci --all-features --workspace --verbose
+
+# Doctest
+cargo test --doc --all-features --workspace
+```
+
+#### 3. Coverage
+
+- **閾値**: Line Coverage **80%以上**
+- 外部サービス依存コードは `#[cfg_attr(coverage_nightly, coverage(off))]` で除外可能
+
+```bash
+# カバレッジ計測 (nightly必須)
+RUSTFLAGS="--cfg coverage_nightly" cargo +nightly llvm-cov nextest --all-features --workspace
+```
+
+#### 4. Security
+
+```bash
+# 脆弱性チェック
+cargo audit
+
+# ライセンス・依存関係チェック
+cargo deny check
+```
+
+#### 5. Build
+
+```bash
+# リリースビルド
+cargo build --release
+```
+
+---
+
+## ローカル CI 確認
+
+### コミット前に実行すべきコマンド
+
+プルリクエスト前に以下のコマンドでCIが通ることを確認してください。
+
+#### 最低限（必須）
+
+```bash
+# フォーマット適用
+cargo fmt --all
+
+# Clippy チェック
+cargo clippy --all-targets --all-features -- -D warnings
+
+# テスト実行
+cargo nextest run --all-features --workspace
+```
+
+#### ワンライナー版
+
+```bash
+cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && cargo nextest run --all-features --workspace
+```
+
+#### フルチェック（推奨）
+
+```bash
+# 1. フォーマット
+cargo fmt --all
+
+# 2. Clippy
+cargo clippy --all-targets --all-features -- -D warnings
+
+# 3. テスト
+cargo nextest run --all-features --workspace
+
+# 4. カバレッジ (80%以上を確認)
+RUSTFLAGS="--cfg coverage_nightly" cargo +nightly llvm-cov nextest --all-features --workspace
+
+# 5. セキュリティ
+cargo audit
+cargo deny check
+
+# 6. ドキュメントビルド
+RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+```
+
+### 必要なツールのインストール
+
+```bash
+# cargo-nextest
+cargo install cargo-nextest
+
+# cargo-llvm-cov (カバレッジ)
+cargo install cargo-llvm-cov
+
+# cargo-audit (セキュリティ)
+cargo install cargo-audit
+
+# cargo-deny (ライセンス)
+cargo install cargo-deny
+
+# Rust nightly (カバレッジ計測用)
+rustup install nightly
+rustup component add llvm-tools-preview --toolchain nightly
+```
+
+---
+
 ## まとめ
 
 このコーディングルールに従うことで：
@@ -606,6 +746,7 @@ pub fn process() -> std::result::Result<(), DomainError> { ... }
 - **可読性**: 理解しやすいコード
 - **保守性**: メンテナンスしやすいコード
 - **パフォーマンス**: 効率的なコード
+- **品質**: CI通過による品質保証
 
 を実現します。
 

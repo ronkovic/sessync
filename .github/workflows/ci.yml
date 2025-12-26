@@ -70,7 +70,9 @@ jobs:
           key: coverage
 
       - name: Generate coverage with nextest
-        run: cargo llvm-cov nextest --all-features --workspace --lcov --output-path lcov.info
+        run: cargo +nightly llvm-cov nextest --all-features --workspace --lcov --output-path lcov.info
+        env:
+          RUSTFLAGS: "--cfg coverage_nightly"
 
       - name: Generate coverage for doctests
         run: cargo +nightly llvm-cov --doc --all-features --workspace --lcov --output-path lcov-doc.info || echo "⚠️  Doctestカバレッジ測定をスキップ（doctestが少ないため）"
@@ -84,15 +86,17 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          # Re-run llvm-cov to generate report (nextest results are already cached)
-          cargo llvm-cov --all-features --workspace --no-report
-          coverage=$(cargo llvm-cov report --summary-only | grep -oP 'TOTAL.*\K\d+\.\d+')
+          # Use nextest to generate coverage report (consistent with lcov generation)
+          # Extract Lines Cover (column 10) from TOTAL row
+          coverage=$(cargo +nightly llvm-cov nextest --all-features --workspace 2>&1 | tee /dev/stderr | grep "^TOTAL" | awk '{print $10}' | tr -d '%')
           echo "Coverage: ${coverage}%"
           if (( $(echo "$coverage < 80.0" | bc -l) )); then
             echo "❌ Coverage below 80% threshold"
             exit 1
           fi
           echo "✅ Coverage is ${coverage}% (above 80% threshold)"
+        env:
+          RUSTFLAGS: "--cfg coverage_nightly"
 
   security:
     name: Security & Licenses

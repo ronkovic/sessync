@@ -76,3 +76,28 @@ pub trait UploadRepository: Send + Sync {
     /// アップロードに失敗した場合にエラーを返す
     async fn upload_batch(&self, batch: &UploadBatch) -> Result<UploadResult>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upload_result_new() {
+        let uuids = vec!["uuid-1".to_string(), "uuid-2".to_string()];
+        let result = UploadResult::new(10, 2, uuids.clone());
+
+        assert_eq!(result.uploaded_count, 10);
+        assert_eq!(result.failed_count, 2);
+        assert_eq!(result.uploaded_uuids, uuids);
+    }
+
+    #[test]
+    fn test_upload_result_new_empty() {
+        let result = UploadResult::new(0, 0, vec![]);
+
+        assert_eq!(result.uploaded_count, 0);
+        assert_eq!(result.failed_count, 0);
+        assert!(result.uploaded_uuids.is_empty());
+        assert!(result.is_success());
+    }
+}
