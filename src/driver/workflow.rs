@@ -2,19 +2,19 @@
 //!
 //! ワークフローのオーケストレーション
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::info;
 
 use std::sync::Arc;
 
-use crate::adapter::bigquery::batch_uploader::upload_to_bigquery_with_factory;
 use crate::adapter::bigquery::client::RealClientFactory;
-use crate::adapter::bigquery::models::SessionLogOutput;
 use crate::adapter::config::Config;
+use crate::adapter::repositories::bigquery_upload_repository::BigQueryUploadRepository;
 use crate::adapter::repositories::file_log_repository::FileLogRepository;
 use crate::adapter::repositories::json_state_repository::JsonStateRepository;
 use crate::application::use_cases::discover_logs::DiscoverLogsUseCase;
 use crate::application::use_cases::parse_logs::ParseLogsUseCase;
+use crate::application::use_cases::upload_logs::UploadLogsUseCase;
 use crate::domain::repositories::state_repository::StateRepository;
 
 use super::cli::Args;
@@ -81,7 +81,7 @@ impl SessionUploadWorkflow {
         // Load upload state
         // State file is project-local for multi-team support
         let state_path = "./.claude/sessync/upload-state.json".to_string();
-        let mut state = self.state_repository.load(&state_path).await?;
+        let state = self.state_repository.load(&state_path).await?;
         println!(
             "✓ Loaded upload state: {} records previously uploaded",
             state.total_uploaded
@@ -151,84 +151,40 @@ impl SessionUploadWorkflow {
 
         println!("✓ Parsed {} records total", domain_logs.len());
 
-        // Convert SessionLog (domain) to SessionLogOutput (BigQuery-specific)
-        let hostname = hostname::get()
-            .context("Failed to get hostname")?
-            .to_string_lossy()
-            .to_string();
-        let uploaded_at = chrono::Utc::now();
-
-        let all_logs: Vec<SessionLogOutput> = domain_logs
-            .into_iter()
-            .map(|log| SessionLogOutput {
-                uuid: log.uuid,
-                timestamp: log.timestamp,
-                session_id: log.session_id,
-                agent_id: log.agent_id,
-                is_sidechain: log.is_sidechain,
-                parent_uuid: log.parent_uuid,
-                user_type: log.user_type,
-                message_type: log.message_type,
-                slug: log.slug,
-                request_id: log.request_id,
-                cwd: log.cwd,
-                git_branch: log.git_branch,
-                version: log.version,
-                message: log.message,
-                tool_use_result: log.tool_use_result,
-                developer_id: log.metadata.developer_id,
-                hostname: hostname.clone(),
-                user_email: log.metadata.user_email,
-                project_name: log.metadata.project_name,
-                upload_batch_id: log.metadata.upload_batch_id,
-                source_file: log.metadata.source_file,
-                uploaded_at,
-            })
-            .collect();
-
-        println!(
-            "✓ Converted {} domain logs to BigQuery format",
-            all_logs.len()
-        );
-
-        if all_logs.is_empty() {
+        if domain_logs.is_empty() {
             println!("No new records to upload. Exiting.");
             return Ok(());
         }
 
         // Upload to BigQuery
-        let uploaded_uuids = if args.dry_run {
+        if args.dry_run {
             println!("✓ Dry-run mode (not actually uploading)");
-            println!("  Would upload {} records:", all_logs.len());
-            for log in &all_logs {
+            println!("  Would upload {} records:", domain_logs.len());
+            for log in &domain_logs {
                 println!(
                     "    - UUID: {} | Session: {} | Type: {}",
                     log.uuid, log.session_id, log.message_type
                 );
             }
-            all_logs.iter().map(|l| l.uuid.clone()).collect()
         } else {
-            upload_to_bigquery_with_factory(
-                factory
-                    .as_ref()
-                    .expect("Factory should exist in non-dry-run mode"),
-                &config,
-                all_logs,
-                false,
-            )
-            .await?
-        };
+            // Create BigQuery upload repository and use case
+            let client_factory =
+                Arc::new(factory.expect("Factory should exist in non-dry-run mode"));
+            let upload_repo = Arc::new(BigQueryUploadRepository::new(
+                client_factory,
+                config.clone(),
+            ));
+            let upload_use_case =
+                UploadLogsUseCase::new(upload_repo, self.state_repository.clone());
 
-        if !args.dry_run && !uploaded_uuids.is_empty() {
-            // Update and save state
-            let batch_id_for_state = uuid::Uuid::new_v4().to_string();
-            let timestamp = chrono::Utc::now().to_rfc3339();
-            state.add_uploaded(uploaded_uuids.clone(), batch_id_for_state, timestamp);
-            state.total_uploaded += uploaded_uuids.len() as u64;
-            self.state_repository.save(&state_path, &state).await?;
+            // Execute upload (includes state update)
+            let summary = upload_use_case
+                .execute(domain_logs, &upload_config, &state_path, &batch_id)
+                .await?;
+
             println!(
-                "✓ Updated upload state: {} total records uploaded",
-                state.total_uploaded
+                "✓ Uploaded {} records ({} failed)",
+                summary.uploaded_count, summary.failed_count
             );
         }
 
