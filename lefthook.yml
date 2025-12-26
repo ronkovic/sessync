@@ -25,3 +25,8 @@ pre-push:
     test:
       run: cargo nextest run --all-features --workspace
       fail_text: "テストが失敗しました。修正してからプッシュしてください。"
+    coverage:
+      run: cargo +nightly llvm-cov nextest --all-features --workspace --fail-under-lines 80
+      fail_text: "カバレッジが80%未満です。テストを追加してからプッシュしてください。"
+      env:
+        RUSTFLAGS: "--cfg coverage_nightly"

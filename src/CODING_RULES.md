@@ -763,7 +763,9 @@ lefthook install
 | タイミング | チェック内容 | 推定時間 |
 |-----------|-------------|---------|
 | **pre-commit** | fmt + clippy | 5-15秒 |
-| **pre-push** | fmt + clippy + test | 30-60秒 |
+| **pre-push** | fmt + clippy + test + coverage (80%以上) | 1-2分 |
+
+**カバレッジ判定**: pre-push時に`cargo llvm-cov`でカバレッジを計測し、80%未満の場合はプッシュを拒否します。
 
 #### チェックをスキップする場合
 
