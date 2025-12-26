@@ -84,6 +84,8 @@ jobs:
 
       - name: Check coverage threshold
         run: |
+          # Re-run llvm-cov to generate report (nextest results are already cached)
+          cargo llvm-cov --all-features --workspace --no-report
           coverage=$(cargo llvm-cov report --summary-only | grep -oP 'TOTAL.*\K\d+\.\d+')
           echo "Coverage: ${coverage}%"
           if (( $(echo "$coverage < 80.0" | bc -l) )); then
