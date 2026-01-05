@@ -15,7 +15,7 @@ google-cloud-gax = "1.4"
 google-cloud-auth = "1.3"
 
 # 非同期ランタイム
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.49", features = ["full"] }
 
 # エラーハンドリング
 anyhow = "1.0"
